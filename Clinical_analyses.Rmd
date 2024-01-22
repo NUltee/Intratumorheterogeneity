@@ -954,12 +954,12 @@ paradigm$T_PTNMT_3bin <- replace(x=paradigm$T_PTNMT,
                                       paradigm$T_PTNMT == "1A" |  # 87
                                       paradigm$T_PTNMT == "1B"),  # 331
                               values = "1-1B")
-paradigm$T_PTNMT_3bin <- replace(x=paradigm$T_PTNMT_bin,
-                              which(paradigm$T_PTNMT_bin == "2" |  # 618
-                                      paradigm$T_PTNMT_bin == "3" |  # 27
-                                      paradigm$T_PTNMT_bin == "4" |  # 2
-                                      paradigm$T_PTNMT_bin == "4B" |  # 5
-                                      paradigm$T_PTNMT_bin == "4D"),  # 1
+paradigm$T_PTNMT_3bin <- replace(x=paradigm$T_PTNMT_3bin,
+                              which(paradigm$T_PTNMT_3bin == "2" |  # 618
+                                      paradigm$T_PTNMT_3bin == "3" |  # 27
+                                      paradigm$T_PTNMT_3bin == "4" |  # 2
+                                      paradigm$T_PTNMT_3bin == "4B" |  # 5
+                                      paradigm$T_PTNMT_3bin == "4D"),  # 1
                               values = "2-4D")  # 27
 ```
 
@@ -1045,3 +1045,5 @@ save_sampled_table <- print(sampled_table, nonnormal = c("T_LEEFT"), formatOptio
 # write.xlsx(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.xlsx"))
 # write.csv(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.csv"))
 ```
+
+Test
