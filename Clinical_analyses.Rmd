@@ -1,0 +1,1047 @@
+---
+title: "ER_intratumor_heterogeneity_clinical_analysis"
+author: "Nigel Ultee"
+date: "2024-01-03"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE)
+```
+
+```{r install and load packages}
+required_packages <- c("fs", "openxlsx", "haven", "readxl", "stringr", "ggplot2",
+                       "dplyr", "hrbrthemes", "tableone", "survival", "mgcv", 
+                       "rms", "survminer", "rsample")
+install_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
+if(length(install_packages)) install.packages(install_packages)
+
+library(fs)
+library(openxlsx)
+library(haven)
+library(readxl)
+library(stringr)
+library(ggplot2)
+library(dplyr)
+library(hrbrthemes)
+library(tableone)
+library(survival)
+library(mgcv)
+library(rms)
+library(survminer)
+library(rsample)
+```
+
+```{r custom functions}
+str.return.number <- function (string, identification, pattern){
+  # string: str, string of interest
+  # identification: str, detect string of interest
+  # pattern = regex, pattern to detect (specific) number within string
+  # returns number of interest within string
+  value = ifelse(startsWith(string, identification), 
+                 as.numeric(str_extract(string, pattern)), 
+                 NA)
+  return(value)
+}
+
+add.id <- function(vector){
+  # vector: vector that needs ID column
+  # returns data frame with ID and values 
+  return(data.frame(ID=deparse(substitute(vector)), value=vector))
+}
+```
+
+```{r paths}
+working_dir <- fs::path("R:/Groups/GroupLinn/Nigel/Projects/Intratumor heterogeneity/")
+input_dir <- fs::path(working_dir, "Data slides/")
+output_dir <- fs::path(working_dir, "Figures/")
+```
+
+### Density plots
+```{r load data}
+# CFMPB39 = IKA TAMOX 
+# (max) stain scores per TMA core
+ika_tma_fn = "CFMPB39_IKA_TAMOX_TMAscores_joined ER PR HER2 Beelen.xls"
+ika_tma <- readxl::read_xls(fs::path(input_dir, ika_tma_fn))
+
+# extract ER, PR and HER2 scoring
+ika_tma[ika_tma < 0] <- NA
+ika_er <- lapply(ika_tma[,c("ER1", "ER2", "ER3")], function(x) as.numeric(x)) 
+ika_er <- as.numeric(unlist(ika_er))
+ika_pr <- lapply(ika_tma[,c("PR1", "PR2", "PR3")], function(x) as.numeric(x)) 
+ika_pr <- as.numeric(unlist(ika_pr))
+ika_her2 <- lapply(ika_tma[,c("HER2_1", "HER2_2", "HER2_3")], function(x) as.numeric(x)) 
+ika_her2 <- as.numeric(unlist(ika_her2))
+
+### CFMPB173 = PARADIGM 
+paradigm_tma_fn = "CFMPB173_PARADIGM_20231117 PARADIGM Nigel ER whole slides.xlsx"
+paradigm_tma <- openxlsx::read.xlsx(fs::path(input_dir, paradigm_tma_fn), sheet = 3)
+
+
+# extract ER, PR and HER2 scoring
+paradigm_er <- lapply(paradigm_tma[,c("ER1", "ER2", "ER3")], function(x) as.numeric(x)) 
+paradigm_er <- as.numeric(unlist(paradigm_er))
+paradigm_pr <- lapply(paradigm_tma[,c("PR1", "PR2", "PR3")], function(x) as.numeric(x)) 
+paradigm_pr <- as.numeric(unlist(paradigm_pr))
+paradigm_her2 <- lapply(paradigm_tma[,c("HER2_1", "HER2_2", "HER2_3")], 
+                        function(x) str.return.number(x, identification="IHC-", pattern="[0-9]"))
+paradigm_her2 <- as.numeric(unlist(paradigm_her2))
+```
+
+TMAs available for:  
+IKA - `r dim(ika_tma)[1]` patients.  
+PARADIGM - `r dim(paradigm_tma)[1]` patients.
+
+```{r density plots IHC4}
+#pdf(file=fs::path(output_dir,"Distribution_IHC4.pdf"))
+# ER
+er_data <- bind_rows(add.id(ika_er), add.id(paradigm_er))
+er_data %>%
+  ggplot(aes(value, color=ID)) + 
+  geom_density(size=2)
+```
+
+<button class="btn btn-primary" data-toggle="collapse" data-target="Hist ER"> Show/Hide </button>  
+<div id="Hist ER" class="collapse"> 
+```{r}
+er_data %>%
+  ggplot(aes(value, fill=ID)) + 
+  geom_histogram(position="stack", bins=10)
+```
+</div>
+
+```{r}
+# PR   
+pr_data <- bind_rows(add.id(ika_pr), add.id(paradigm_pr))
+pr_data %>%
+  ggplot(aes(value, color=ID)) + 
+  geom_density(size=2)
+```
+
+<button class="btn btn-primary" data-toggle="collapse" data-target="RFS paradigm patient characteristics"> Show/Hide </button>  
+<div id="RFS paradigm patient characteristics" class="collapse"> 
+```{r}
+pr_data %>%
+  ggplot(aes(value, fill=ID)) + 
+  geom_histogram(position="stack", bins=10)
+```
+</div>
+
+```{r}
+# HER2
+her2_data <- bind_rows(add.id(ika_her2), add.id(paradigm_her2))
+her2_data %>%
+  ggplot(aes(value, color=ID)) + 
+  geom_density(size=2)
+```
+
+<button class="btn btn-primary" data-toggle="collapse" data-target="HER2 hist"> Show/Hide </button>  
+<div id="HER2 hist" class="collapse"> 
+```{r}
+her2_data %>%
+  ggplot(aes(value, fill=ID)) + 
+  geom_histogram(position="stack", bins=4)
+```
+</div>
+
+
+
+```{r}
+# Data from slidescore
+# Name ; nr WSI HE; nr WSI ER; nr TMA ER; nr WSI HER2; nr TMA HER2; nr WSI Ki67; nr TMA Ki67
+# CFMPB173 = PARADIGM; 318; 64; 185; 39; 188; 39; 101; 64
+# CFMPB39 = IKA TAMOX; 797; 16; 14; 11; 0; 8; 0 ; 18
+# IRBm22-293 = MINDACT; ?; ?; ?; ?; ?; ?; ?; ?
+# TCGA; 
+# ICGC; 
+### add PR status?
+```
+
+### Patient characteristics
+Simplify code -> keep all variables in original ika/paradigm data
+#### IKA
+```{r}
+# CFMPB39 = IKA TAMOX 
+ika_characteristics_fn = "CFMPB39_IKA_TAMOX_Final database_for PI3K_060112_withpSGK3_and4EBP1.sav"
+ika_characteristics <- read_sav(fs::path(input_dir, ika_characteristics_fn))
+
+# append missing variables
+ika_extra <- read.delim(fs::path(input_dir, "KWF preliminary 20231002 1.txt"),
+                        sep = ";", dec=",")
+ika_extra <- ika_extra[match(ika_characteristics$TAMnr, ika_extra$TAMnr), ]
+extra_vars <- c("age", "T", "chir2", "Prior.RT")
+tma_vars <- c("ER_max", "PR_max", "HER2_max")
+ika_characteristics <- data.frame(ika_characteristics, ika_extra[,extra_vars], 
+                                  ika_tma)
+
+# preprocessing
+characteristics <- c("age", "T", "nodfinalrecoded", "grade", 
+                     "histologie", "ER_max", "PR_max", "HER2_max", "KI67", 
+                     "RFIevent", "RFIdays", "arm1recoded")
+ika_general <- ika_characteristics[, characteristics[1:9]]
+names(ika_general) <- c("Age", "Tumor size", "Nodal status", "Grade", 
+                        "Histology", "ER percentage", "PR percentage", 
+                        "HER2 score", "KI67 percentage")
+ika_general$`Tumor size` <- as.character(ika_general$`Tumor size`)
+ika_general$`Nodal status` <- replace(x=as.vector(ika_general$`Nodal status`),
+                                      which(ika_general$`Nodal status` == 0),
+                                      values = "Negative")
+ika_general$`Nodal status` <- replace(x=as.vector(ika_general$`Nodal status`),
+                                      which(ika_general$`Nodal status` == 1),
+                                      values = "Positive")
+ika_general$Grade <- as.character(ika_general$Grade)
+ika_general$`Grade` <- replace(x=as.vector(ika_general$`Grade`),
+                               which(ika_general$`Grade` == "0"),
+                               values = NA)
+ika_general$`Histology` <- replace(x=as.vector(ika_general$`Histology`),
+                                   which(ika_general$`Histology` == 1),
+                                   values = "No special type")
+ika_general$`Histology` <- replace(x=as.vector(ika_general$`Histology`),
+                                   which(ika_general$`Histology` == 2),
+                                   values = "Lobular")
+ika_general$`Histology` <- replace(x=as.vector(ika_general$`Histology`),
+                                   which(ika_general$`Histology` > 2 & 
+                                           ika_general$Histology <= 8),
+                                   values = "Other")
+ika_general$`Histology` <- replace(x=as.vector(ika_general$`Histology`),
+                                   which(ika_general$`Histology` == 999),
+                                   values = NA)
+ika_general$`ER percentage` <- replace(x=as.vector(ika_general$`ER percentage`),                                         
+                                       which(ika_general$`ER percentage` <= 1),
+                                       values = " <=1")
+ika_general$`ER percentage` <- replace(x=as.vector(ika_general$`ER percentage`),
+                                       which(ika_general$`ER percentage` > 1 &
+                                                 ika_general$`ER percentage` <= 10),
+                                       values = "1-10")
+ika_general$`ER percentage` <- replace(x=as.vector(ika_general$`ER percentage`),
+                                       which(ika_general$`ER percentage` > 10),
+                                       values = ">10")
+ika_general$`PR percentage` <- replace(x=as.vector(ika_general$`PR percentage`),
+                                       which(ika_general$`PR percentage` <= 1),
+                                       values = " <=1")
+ika_general$`PR percentage` <- replace(x=as.vector(ika_general$`PR percentage`),
+                                       which(ika_general$`PR percentage` > 1 &
+                                               ika_general$`PR percentage` <= 10),
+                                       values = "1-10")
+ika_general$`PR percentage` <- replace(x=as.vector(ika_general$`PR percentage`),
+                                       which(ika_general$`PR percentage` > 10),
+                                       values = ">10")
+ika_general$`HER2 score` <- as.character(ika_general$`HER2 score`)
+ika_general$`KI67 percentage` <- replace(x=as.vector(ika_general$`KI67 percentage`),
+                                         which(ika_general$`KI67 percentage` <= 20),
+                                         values = "0-20")
+ika_general$`KI67 percentage` <- replace(x=as.vector(ika_general$`KI67 percentage`),
+                                         which(ika_general$`KI67 percentage` > 20 &
+                                                 ika_general$`KI67 percentage` <= 30),
+                                         values = "20-30")
+ika_general$`KI67 percentage` <- replace(x=as.vector(ika_general$`KI67 percentage`),
+                                         which(ika_general$`KI67 percentage` > 30),
+                                         values = ">30")
+```
+
+<button class="btn btn-primary" data-toggle="collapse" data-target="IKA patient characteristics"> Show/Hide </button>  
+<div id="IKA patient characteristics" class="collapse"> 
+```{r create table ika}
+# https://www.rdocumentation.org/packages/tableone/versions/0.12.0/topics/CreateTableOne
+ika_table <- CreateTableOne(data = ika_general, 
+                            vars = c("Age", "Tumor size", "Grade", 
+                                     "Histology","Nodal status", "ER percentage", 
+                                     "PR percentage", "HER2 score",
+                                     "KI67 percentage"),
+                            #factorVars = c("Tumor size", "HER2 score"),
+                            includeNA = FALSE
+)
+
+save_ika_table <- print(ika_table, nonnormal = c("Age"), formatOptions = list(big.mark = ","))
+
+write.xlsx(as.data.frame(save_ika_table), file = fs::path(output_dir, "IKA_patient_characteristics.xlsx"))
+write.csv(as.data.frame(save_ika_table), file = fs::path(output_dir, "IKA_patient_characteristics.csv"))
+```
+</div>
+
+```{r}
+print(save_ika_table)
+```
+
+#### Paradigm
+```{r}
+paradigm_tma_fn <- "CFMPB173_PARADIGM_20231117 PARADIGM Nigel ER whole slides.xlsx"
+paradigm_characteristics <- openxlsx::read.xlsx(fs::path(input_dir, paradigm_tma_fn), sheet = 2)
+
+characteristics <- c("T_LEEFT", "Grade", "HISTOLOGICAL_SUBTYPErec", "ER.num",
+                     "PR.num")
+# missing: tumor size, nodal status, HER2 status, Ki67 status
+
+paradigm_general <- paradigm_characteristics[, characteristics]
+paradigm_general[,"Nodal status"] <- NA  # node positive were excluded
+paradigm_general[,"KI67 status"] <- NA  # measurements not trustworthy
+
+paradigm_fn <- "CFMPB173_PARADIGM_20231117 PARADIGM Nigel ER whole slides.xlsx"
+paradigm <- openxlsx::read.xlsx(fs::path(input_dir, paradigm_tma_fn), sheet = 1)
+
+# bin Tumor size
+table(paradigm$T_PTNMT)  # occurences per category
+paradigm$T_PTNMT_3bin <- replace(x=paradigm$T_PTNMT,
+                              which(paradigm$T_PTNMT == "1" |  # 62
+                                      paradigm$T_PTNMT == "1A" |  # 87
+                                      paradigm$T_PTNMT == "1B"),  # 331
+                              values = "1-1B")
+paradigm$T_PTNMT_3bin <- replace(x=paradigm$T_PTNMT_3bin,
+                              which(paradigm$T_PTNMT_3bin == "2" |  # 618
+                                      paradigm$T_PTNMT_3bin == "3" |  # 27
+                                      paradigm$T_PTNMT_3bin == "4" |  # 2
+                                      paradigm$T_PTNMT_3bin == "4B" |  # 5
+                                      paradigm$T_PTNMT_3bin == "4D"),  # 1
+                              values = "2-4D")  # 27
+paradigm_general[,"Tumor size"] <- paradigm$T_PTNMT_3bin  # order=identical
+
+paradigm_general <- paradigm_general[,c("T_LEEFT", "Tumor size", "Nodal status", 
+                                        "Grade", "HISTOLOGICAL_SUBTYPErec", 
+                                        "ER.num","PR.num", 
+                                        "KI67 status")]
+names(paradigm_general) <- c("Age", "Tumor size", "Nodal status", "Grade", 
+                             "Histology", "ER percentage", "PR percentage",
+                             "KI67 percentage")
+
+paradigm_general$`Grade` <- replace(x=as.vector(paradigm_general$`Grade`),
+                               which(paradigm_general$`Grade` == "Grade 1"),
+                               values = "1")
+paradigm_general$`Grade` <- replace(x=as.vector(paradigm_general$`Grade`),
+                               which(paradigm_general$`Grade` == "Grade 2"),
+                               values = "2")
+paradigm_general$`Grade` <- replace(x=as.vector(paradigm_general$`Grade`),
+                               which(paradigm_general$`Grade` == "Grade 3"),
+                               values = "3")
+paradigm_general$`Histology` <- replace(x=as.vector(paradigm_general$`Histology`),
+                                   which(paradigm_general$`Histology` == "Carcinoma NOS"),
+                                   values = "No special type")
+paradigm_general$`Histology` <- replace(x=as.vector(paradigm_general$`Histology`),
+                                   which(paradigm_general$`Histology` == "Lobular carcinoma"),
+                                   values = "Lobular")
+paradigm_general$`Histology` <- replace(x=as.vector(paradigm_general$`Histology`),
+                                        which(paradigm_general$`Histology` != c("No special type", "Lobular")),
+                                        values = "Other")
+paradigm_general$`ER percentage` <- replace(x=as.vector(paradigm_general$`ER percentage`),
+                                       which(paradigm_general$`ER percentage` <= 1),
+                                       values = " <=1")
+paradigm_general$`ER percentage` <- replace(x=as.vector(paradigm_general$`ER percentage`),
+                                       which(paradigm_general$`ER percentage` > 1 &
+                                               paradigm_general$`ER percentage` <= 10),
+                                       values = "1-10")
+paradigm_general$`ER percentage` <- replace(x=as.vector(paradigm_general$`ER percentage`),
+                                       which(paradigm_general$`ER percentage` > 10),
+                                       values = ">10")
+paradigm_general$`PR percentage` <- replace(x=as.vector(paradigm_general$`PR percentage`),
+                                       which(paradigm_general$`PR percentage` <= 1),
+                                       values = " <=1")
+paradigm_general$`PR percentage` <- replace(x=as.vector(paradigm_general$`PR percentage`),
+                                       which(paradigm_general$`PR percentage` > 1 &
+                                               paradigm_general$`PR percentage` <= 10),
+                                       values = "1-10")
+paradigm_general$`PR percentage` <- replace(x=as.vector(paradigm_general$`PR percentage`),
+                                       which(paradigm_general$`PR percentage` > 10),
+                                       values = ">10")
+paradigm_general$`HER2 score` <- replace(x=as.vector(paradigm$HER2.rev),
+                                          which(paradigm$HER2.rev == "IHC-0"),
+                                          values = "0")
+paradigm_general$`HER2 score` <- replace(x=as.vector(paradigm$HER2.rev),
+                                          which(paradigm$HER2.rev == "IHC-1"),
+                                          values = "1")
+paradigm_general$`HER2 score` <- replace(x=as.vector(paradigm$HER2.rev),
+                                          which(paradigm$HER2.rev == "IHC-2"),
+                                          values = "2")
+paradigm_general$`HER2 score` <- replace(x=as.vector(paradigm$HER2.rev),
+                                          which(paradigm$HER2.rev == "IHC-3"),
+                                          values = "3")
+paradigm_general$`HER2 score` <- replace(x=as.vector(paradigm$HER2.rev),
+                                          grep("SISH", paradigm$HER2.rev),
+                                          values = NA)
+```
+
+<button class="btn btn-primary" data-toggle="collapse" data-target="Paradigm patient characteristics"> Show/Hide </button>  
+<div id="Paradigm patient characteristics" class="collapse"> 
+```{r create table paradigm}
+# https://www.rdocumentation.org/packages/tableone/versions/0.12.0/topics/CreateTableOne
+paradigm_table <- CreateTableOne(data = paradigm_general, 
+                            vars = c("Age", "Tumor size", "Grade", 
+                                     "Histology","Nodal status", "ER percentage", 
+                                     "PR percentage", "HER2 score",
+                                     "KI67 percentage"),
+                            includeNA = FALSE
+)
+
+save_paradigm_table <- print(paradigm_table, nonnormal = c("Age"), formatOptions = list(big.mark = ","))
+
+write.xlsx(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.xlsx"))
+write.csv(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.csv"))
+
+```
+</div>
+
+```{r}
+print(save_paradigm_table)
+```
+
+### ER% - outcome Paradigm
+```{r}
+# extract variables
+paradigm_fn <- "CFMPB173_PARADIGM_20231117 PARADIGM Nigel ER whole slides.xlsx"
+paradigm <- openxlsx::read.xlsx(fs::path(input_dir, paradigm_tma_fn), sheet = 1)
+
+# bin Tumor size
+table(paradigm$T_PTNMT)  # occurences per category
+
+paradigm$T_PTNMT_4bin <- replace(x=paradigm$T_PTNMT,
+                              which(paradigm$T_PTNMT == "1" |  # 62
+                                      paradigm$T_PTNMT == "1A" |  # 87
+                                      paradigm$T_PTNMT == "1B"),  # 331
+                              values = "1-1B")
+paradigm$T_PTNMT_4bin <- replace(x=paradigm$T_PTNMT_4bin,
+                              which(paradigm$T_PTNMT_4bin == "3" |  # 27
+                                      paradigm$T_PTNMT_4bin == "4" |  # 2
+                                      paradigm$T_PTNMT_4bin == "4B" |  # 5
+                                      paradigm$T_PTNMT_4bin == "4D"),  # 1
+                              values = "3-4D")  # 27
+```
+
+#### All histology types
+##### OS (overall survival)
+###### Cox proportional hazards
+```{r OS cox}
+paradigm$fustat.binary <- replace(x=paradigm$fustat.final,
+                                which(paradigm$fustat.final == "in leven 0"),
+                                values=0)
+paradigm$fustat.binary <- replace(x=paradigm$fustat.binary,
+                                 which(paradigm$fustat.binary == "overleden 1"),
+                                 values=1)
+surv_model <- coxph(Surv(VITFUP.final, as.numeric(fustat.binary)) ~ as.numeric(ER.num)+ T_LEEFT + Grade + T_PTNMT_4bin, 
+                              data = paradigm)
+summary(surv_model)
+```
+
+```{r OS cox 2}
+surv_model <- coxph(Surv(VITFUP.final, as.numeric(fustat.binary)) ~ as.numeric(ER.num)+ T_LEEFT + Grade + T_PTNMT_4bin + ER.cat.final, 
+                              data = paradigm)
+summary(surv_model)
+```
+Correcting for ER status removes the independent prognostic value of the continuous ER score for tumors of all histological subtypes.
+
+Assumptions  
+Proportional hazards
+<button class="btn btn-primary" data-toggle="collapse" data-target="OS prophaz"> Show/Hide </button>  
+<div id="OS prophaz" class="collapse">  
+```{r OS assumptions}
+# test proportional hazards assumption
+proportional_hazard_assumption <- cox.zph(surv_model)
+print(proportional_hazard_assumption)
+plot(proportional_hazard_assumption)
+```
+</div>
+
+Linearity of log-hazards
+<button class="btn btn-primary" data-toggle="collapse" data-target="OS log-haz"> Show/Hide </button>  
+<div id="OS log-haz" class="collapse">  
+```{r}
+# test linearity of log-hazards
+# gam_model <- mgcv::gam(Surv(VITFUP.final/365.25, as.numeric(fustat.binary)) ~ mgcv::s(as.numeric(ER.num)) + T_LEEFT + Grade + T_PTNMT_4bin, data = paradigm, family = "cox") # error invalid type list
+# plot(gam_model)
+```
+</div>
+
+Collinearity
+<button class="btn btn-primary" data-toggle="collapse" data-target="OS collin"> Show/Hide </button>  
+<div id="OS collin" class="collapse">  
+```{r}
+# test collinearity 
+vif_values <- rms::vif(surv_model)
+print(vif_values)
+```
+</div>
+
+###### Kaplan-Meier
+```{r binning}
+# split 50-80
+paradigm$ER_5080 <- replace(x=paradigm$ER.num,
+                            which(as.numeric(paradigm$ER.num) <= 50),
+                            values="1")
+paradigm$ER_5080 <- replace(x=paradigm$ER_5080,
+                            which(as.numeric(paradigm$ER_5080) > 50 &
+                                    as.numeric(paradigm$ER_5080) <=80),
+                            values="2")
+paradigm$ER_5080 <- replace(x=paradigm$ER_5080,
+                            which(as.numeric(paradigm$ER_5080) > 80),
+                            values="3")
+
+# split 0-50-80
+paradigm$ER_5bin <- replace(x=paradigm$ER.num,
+                            which(as.numeric(paradigm$ER.num) < 1),
+                            values="0")
+paradigm$ER_5bin <- replace(x=paradigm$ER_5bin,
+                            which(as.numeric(paradigm$ER_5bin) >= 1 &
+                                    as.numeric(paradigm$ER_5bin) <=10),
+                            values="1")
+paradigm$ER_5bin <- replace(x=paradigm$ER_5bin,
+                            which(as.numeric(paradigm$ER_5bin) > 10 &
+                                    as.numeric(paradigm$ER_5bin) <=50),
+                            values="2")
+paradigm$ER_5bin <- replace(x=paradigm$ER_5bin,
+                            which(as.numeric(paradigm$ER_5bin) > 50 &
+                                    as.numeric(paradigm$ER_5bin) <=80),
+                            values="3")
+paradigm$ER_5bin <- replace(x=paradigm$ER_5bin,
+                            which(as.numeric(paradigm$ER_5bin) > 80),
+                            values="4")
+
+```
+
+50-80 split
+<button class="btn btn-primary" data-toggle="collapse" data-target="OS km1"> Show/Hide </button>  
+<div id="OS km1" class="collapse">  
+```{r OS Kaplan-Meier}
+# Kaplan-Meier with OS
+km_model <- survfit(Surv(VITFUP.final/365.25, as.numeric(fustat.binary)) ~ ER_5080, data = paradigm)
+ggsurvplot(km_model, 
+           data=paradigm,
+           censor.shape = "|",
+           censor.size = 1,
+           fun="pct",
+           palette = "lancet",
+           risk.table = TRUE,
+           risk.table.fontsize = 2.5,
+           tables.height = 0.3,
+           legend.title = "ER%",
+           legend.labs =c("0-50%", "50-80%", "80-100%"),
+           #conf.int=T,
+           pval = TRUE,
+           title = "Overall Survival",
+           ylim = c(40, 100),
+           xlab = "Time (years)", 
+           ylab = "Overall survival (%)",
+           break.time.by = 5
+)
+```
+</div>
+
+0-50-80 split
+```{r}
+# kaplan-meier with OS (other groups)
+km_model <- survfit(Surv(VITFUP.final/365.25, as.numeric(fustat.binary)) ~ ER_5bin, data = paradigm)
+ggsurvplot(km_model, 
+           data=paradigm,
+           censor.shape = "|",
+           censor.size = 1,
+           fun="pct",
+           palette = "lancet",
+           risk.table = TRUE,
+           risk.table.fontsize = 2.5,
+           tables.height = 0.3,
+           legend.title = "ER%",
+           legend.labs =c("0", "1-10%", "11-50", "51-80%", "81-100%"),
+           #conf.int=T,
+           pval = TRUE,
+           title = "Overall Survival",
+           ylim = c(40, 100),
+           xlab = "Time (years)", 
+           ylab = "Overall survival (%)",
+           break.time.by = 5
+)
+```
+
+##### RFS (recurrence free survival)
+###### Cox proportional hazards
+```{r RFS cox}
+surv_model <- coxph(Surv(rfs.td, rfs.event) ~ as.numeric(ER.num) + T_LEEFT + Grade + T_PTNMT_4bin, 
+                    data = paradigm)
+summary(surv_model)
+```
+
+
+Proportional hazards
+<button class="btn btn-primary" data-toggle="collapse" data-target="RFS prophaz"> Show/Hide </button>  
+<div id="RFS prophaz" class="collapse">  
+```{r RFS assumptions}
+# test proportional hazards assumption
+proportional_hazard_assumption <- cox.zph(surv_model)
+print(proportional_hazard_assumption)
+plot(proportional_hazard_assumption)
+```
+</div>
+
+Linearity of log-hazards
+<button class="btn btn-primary" data-toggle="collapse" data-target="RFS log-haz"> Show/Hide </button>  
+<div id="RFS log-haz" class="collapse">  
+```{r}
+# test linearity of log-hazards
+# gam_model <- mgcv::gam(Surv(rfs.td, rfs.event) ~ mgcv::s(as.numeric(ER.num)) + T_LEEFT + Grade + T_PTNMT_4bin, 
+#                  data = paradigm, family = "cox") # error invalid type list
+# plot(gam_model)
+```
+</div>
+
+Collinearity
+<button class="btn btn-primary" data-toggle="collapse" data-target="RFS collin"> Show/Hide </button>  
+<div id="RFS collin" class="collapse">  
+```{r}
+# test collinearity 
+vif_values <- rms::vif(surv_model)
+print(vif_values)
+```
+</div>
+
+###### Kaplan-Meier
+50-80 split
+<button class="btn btn-primary" data-toggle="collapse" data-target="RFS km1"> Show/Hide </button>  
+<div id="RFS km1" class="collapse">  
+```{r RFS Kaplan-Meier}
+# kaplan-meier with RFS
+km_model <- survfit(Surv(rfs.td/365.25, rfs.event) ~ ER_5080, data = paradigm)
+ggsurvplot(km_model, 
+           data=paradigm,
+           censor.shape = "|",
+           censor.size = 1,
+           fun="pct",
+           palette = "lancet",
+           risk.table = TRUE,
+           risk.table.fontsize = 2.5,
+           tables.height = 0.3,
+           legend.title = "ER%",
+           legend.labs =c("0-50%", "50-80%", "80-100%"),
+           #conf.int=T,
+           pval = TRUE,
+           title = "Recurrence free survival",
+           ylim = c(40, 100),
+           xlab = "Time (years)", 
+           ylab = "RFS event free (%)",
+           break.time.by = 5
+           )
+```
+</div>
+
+0-50-80 split
+```{r}
+# kaplan-meier with RFS (other groups)
+km_model <- survfit(Surv(rfs.td/365.25, rfs.event) ~ ER_5bin, data = paradigm)
+ggsurvplot(km_model, 
+           data=paradigm,
+           censor.shape = "|",
+           censor.size = 1,
+           fun="pct",
+           palette = "lancet",
+           risk.table = TRUE,
+           risk.table.fontsize = 2.5,
+           tables.height = 0.3,
+           legend.title = "ER%",
+           legend.labs =c("0", "1-10%", "11-50", "51-80%", "81-100%"),
+           #conf.int=T,
+           pval = TRUE,
+           title = "Recurrence free survival",
+           ylim = c(40, 100),
+           xlab = "Time (years)", 
+           ylab = "RFS event free (%)",
+           break.time.by = 5
+)
+```
+
+##### IDFS (invasive disease free survival)
+```{r IDFS cox}
+surv_model <- coxph(Surv(idfs.td, idfs) ~ as.numeric(ER.num)+ T_LEEFT + Grade + T_PTNMT_4bin, 
+                    data = paradigm)
+summary(surv_model)
+```
+
+###### Kaplan-Meier
+50-80 split
+<button class="btn btn-primary" data-toggle="collapse" data-target="IDFS km1"> Show/Hide </button>  
+<div id="IDFS km1" class="collapse">  
+```{r IDFS Kaplan-Meier}
+# kaplan-meier with IDFS
+km_model <- survfit(Surv(idfs.td/365.25, idfs) ~ ER_5080, data = paradigm)
+ggsurvplot(km_model, 
+           data=paradigm,
+           censor.shape = "|",
+           censor.size = 1,
+           fun="pct",
+           palette = "lancet",
+           risk.table = TRUE,
+           risk.table.fontsize = 2.5,
+           tables.height = 0.3,
+           legend.title = "ER%",
+           legend.labs =c("0-50%", "50-80%", "80-100%"),
+           #conf.int=T,
+           pval = TRUE,
+           title = "Invasive disease free survival",
+           ylim = c(40, 100),
+           xlab = "Time (years)", 
+           ylab = "RFS event free (%)",
+           break.time.by = 5
+           )
+```
+</div>
+
+0-50-80 split
+```{r}
+# kaplan-meier with IDFS (other groups)
+km_model <- survfit(Surv(idfs.td/365.25, idfs) ~ ER_5bin, data = paradigm)
+ggsurvplot(km_model, 
+           data=paradigm,
+           censor.shape = "|",
+           censor.size = 1,
+           fun="pct",
+           palette = "lancet",
+           risk.table = TRUE,
+           risk.table.fontsize = 2.5,
+           tables.height = 0.3,
+           legend.title = "ER%",
+           legend.labs =c("0", "1-10%", "11-50", "51-80%", "80-100%"),
+           #conf.int=T,
+           pval = TRUE,
+           title = "Invasive disease free survival",
+           ylim = c(40, 100),
+           xlab = "Time (years)", 
+           ylab = "RFS event free (%)",
+           break.time.by = 5
+)
+```
+
+#### Only ER+ HER2- tumors
+```{r ER+ HER-}
+paradigm_er_pos_her2_neg <- paradigm[paradigm$ER.cat.final=="Positive" & 
+                                       paradigm$HER2.cat == "Negative",]
+```
+
+##### OS (overall survival)
+###### Cox proportional hazards
+```{r}
+paradigm_er_pos_her2_neg$fustat.binary <- replace(x=paradigm_er_pos_her2_neg$fustat.final,
+                                which(paradigm_er_pos_her2_neg$fustat.final == "in leven 0"),
+                                values=0)
+paradigm_er_pos_her2_neg$fustat.binary <- replace(x=paradigm_er_pos_her2_neg$fustat.binary,
+                                 which(paradigm_er_pos_her2_neg$fustat.binary == "overleden 1"),
+                                 values=1)
+surv_model <- coxph(Surv(VITFUP.final, as.numeric(fustat.binary)) ~ as.numeric(ER.num)+ T_LEEFT + Grade + T_PTNMT_4bin, 
+                              data = paradigm_er_pos_her2_neg)
+summary(surv_model)
+```
+Within ER+ HER2- patients, the ER percentage as assessed by the pathologist is not independently prognostic either.
+
+Assumptions  
+Proportional hazards
+<button class="btn btn-primary" data-toggle="collapse" data-target="OS prophaz 2"> Show/Hide </button>  
+<div id="OS prophaz 2" class="collapse">  
+```{r OS assumptions 2}
+# test proportional hazards assumption
+proportional_hazard_assumption <- cox.zph(surv_model)
+print(proportional_hazard_assumption)
+plot(proportional_hazard_assumption)
+```
+</div>
+
+Linearity of log-hazards
+<button class="btn btn-primary" data-toggle="collapse" data-target="OS log-haz 2"> Show/Hide </button>  
+<div id="OS log-haz 2" class="collapse">  
+```{r}
+# test linearity of log-hazards
+# gam_model <- mgcv::gam(Surv(VITFUP.final/365.25, as.numeric(fustat.binary)) ~ mgcv::s(as.numeric(ER.num)) + T_LEEFT + Grade + T_PTNMT_4bin, data = paradigm_er_pos_her2_neg, family = "cox") # error invalid type list
+# plot(gam_model)
+```
+</div>
+
+Collinearity
+<button class="btn btn-primary" data-toggle="collapse" data-target="OS collin 2"> Show/Hide </button>  
+<div id="OS collin 2" class="collapse">  
+```{r}
+# test collinearity 
+vif_values <- rms::vif(surv_model)
+print(vif_values)
+```
+</div>
+
+###### Kaplan-Meier
+50-80 split
+<button class="btn btn-primary" data-toggle="collapse" data-target="OS km1 2"> Show/Hide </button>  
+<div id="OS km1 2" class="collapse">  
+```{r}
+# Kaplan-Meier with OS
+km_model <- survfit(Surv(VITFUP.final/365.25, as.numeric(fustat.binary)) ~ ER_5080, data = paradigm_er_pos_her2_neg)
+ggsurvplot(km_model, 
+           data=paradigm_er_pos_her2_neg,
+           censor.shape = "|",
+           censor.size = 1,
+           fun="pct",
+           palette = "lancet",
+           risk.table = TRUE,
+           risk.table.fontsize = 2.5,
+           tables.height = 0.3,
+           legend.title = "ER%",
+           legend.labs =c("0-50%", "50-80%", "80-100%"),
+           #conf.int=T,
+           pval = TRUE,
+           title = "Overall Survival",
+           ylim = c(40, 100),
+           xlab = "Time (years)", 
+           ylab = "Overall survival (%)",
+           break.time.by = 5
+)
+```
+</div>
+
+0-50-80 split
+```{r}
+# kaplan-meier with OS (other groups)
+km_model <- survfit(Surv(VITFUP.final/365.25, as.numeric(fustat.binary)) ~ ER_5bin, data = paradigm_er_pos_her2_neg)
+ggsurvplot(km_model, 
+           data=paradigm_er_pos_her2_neg,
+           censor.shape = "|",
+           censor.size = 1,
+           fun="pct",
+           palette = "lancet",
+           risk.table = TRUE,
+           risk.table.fontsize = 2.5,
+           tables.height = 0.3,
+           legend.title = "ER%",
+           legend.labs =c("1-10%", "11-50", "51-80%", "81-100%"),
+           #conf.int=T,
+           pval = TRUE,
+           title = "Overall Survival",
+           ylim = c(40, 100),
+           xlab = "Time (years)", 
+           ylab = "Overall survival (%)",
+           break.time.by = 5
+)
+```
+Groups 1-10 and especially 81-100, seem to do better than groups 11-50 and 51-80, which, in principle, are more heterogeneous.
+So taking these analyses together, can we conclude that it seems as if pathologists pick up some heterogeneity, but the ER percentage score is not independently prognostic. 
+So the number of positive cells as scored by pathologists could possibly detect heterogeneity, however it does not seem to pick up the degree of heterogeneity (If ER percentage score takes only the number of cells into account and no other characteristics.) Now the question is, can we detect the degree of heterogeneity, if we add and combine characteristics as described in the paper by Lindstrom et. al i.e., richness x evenness(x intensity?) and eventually spatial relationships. 
+
+Questions:  
+- to Hugo: what characteristics do pathologist use to evaluate the ER (positive cell) percentage. Does it include intensity as well?
+
+(Are these km plots correct?? Given the nr at risk table...)
+
+### Sampling
+#### Patients without ER TMA not filtered out
+```{r}
+set.seed(150120245)
+
+# "T_PTNMT_3bin", "ER.cat.final", "PR.cat.final"
+variables_to_stratify <- c("Grade", "T_PTNMT")
+ignore_na <- c("Grade", "T_PTNMT", "TMA_NUMBER_ER_IHC_ER_E2_C2")
+
+paradigm %>%
+  filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+  #filter(!any(is.na(across(all_of(variables_to_stratify))))) %>%
+  group_by(across(all_of(variables_to_stratify))) %>%
+  summarise(freq = n()) %>%
+  as.data.frame()
+
+# Calculate strata frequencies
+strata_freq <- paradigm %>%
+  filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+  #filter(!any(is.na(across(all_of(variables_to_stratify))))) %>%
+  group_by(across(all_of(variables_to_stratify))) %>%
+  summarise(freq = n())
+
+# add probability to each row
+paradigm_with_subgroups <- paradigm %>%
+  filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+  group_by(across(all_of(variables_to_stratify))) %>%
+  mutate(subgroup = group_indices()) %>%
+  ungroup()
+
+paradigm_with_subgroups <- paradigm_with_subgroups %>%
+  left_join(strata_freq, by = c("Grade", "T_PTNMT")) %>%
+  mutate(
+    subgroup = as.numeric(as.character(subgroup)),
+    probability = strata_freq$freq[match(subgroup, names(table(subgroup)))] / sum(strata_freq$freq)
+  ) %>%
+  select(-freq)  # Optional: Remove the freq column
+
+stratified_proportions_sampled_data <- paradigm_with_subgroups %>%
+  sample_n(size = 240, replace = FALSE, weight = probability)
+```
+
+```{r}
+paradigm$sampled <- ifelse(paradigm$palga_nr %in% stratified_proportions_sampled_data$palga_nr, "yes", "no")
+
+# https://www.rdocumentation.org/packages/tableone/versions/0.12.0/topics/CreateTableOne
+sampled_table <- CreateTableOne(data = paradigm, 
+                            vars = c("T_LEEFT", "T_PTNMT", "Grade", 
+                                     "Histology_3bin", "ER_5bin", "PR_5bin", 
+                                     "HER2.cat.rev.redone"),
+                            includeNA = FALSE,
+                            strata = "sampled"
+)
+
+save_sampled_table <- print(sampled_table, nonnormal = c("T_LEEFT"), formatOptions = list(big.mark = ","))
+
+# write.xlsx(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.xlsx"))
+# write.csv(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.csv"))
+```
+
+NAs were excluded during stratification.
+
+#### Patients without ER TMA filtered out
+```{r}
+set.seed(150120244)
+
+# "T_PTNMT_3bin", "ER.cat.final", "PR.cat.final"
+variables_to_stratify <- c("Grade", "T_PTNMT")
+#ignore_na <- c("Grade", "T_PTNMT", "TMA_NUMBER_ER_IHC_ER_E2_C2")
+
+paradigm %>%
+  filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+  group_by(across(all_of(variables_to_stratify))) %>%
+  summarise(freq = n()) %>%
+  as.data.frame()
+
+# Calculate strata frequencies
+strata_freq <- paradigm %>%
+  filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+  group_by(across(all_of(variables_to_stratify))) %>%
+  summarise(freq = n())
+
+# add probability to each row
+paradigm_with_subgroups <- paradigm %>%
+  filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+  group_by(across(all_of(variables_to_stratify))) %>%
+  mutate(subgroup = group_indices()) %>%
+  ungroup()
+
+paradigm_with_subgroups <- paradigm_with_subgroups %>%
+  left_join(strata_freq, by = c("Grade", "T_PTNMT")) %>%
+  mutate(
+    subgroup = as.numeric(as.character(subgroup)),
+    probability = strata_freq$freq[match(subgroup, names(table(subgroup)))] / sum(strata_freq$freq)
+  ) %>%
+  select(-freq)  # Optional: Remove the freq column
+
+stratified_proportions_sampled_data <- paradigm_with_subgroups %>%
+  sample_n(size = 240, replace = FALSE, weight = probability)
+```
+
+```{r}
+paradigm$sampled <- ifelse(paradigm$palga_nr %in% stratified_proportions_sampled_data$palga_nr, "yes", "no")
+
+# https://www.rdocumentation.org/packages/tableone/versions/0.12.0/topics/CreateTableOne
+sampled_table <- CreateTableOne(data = paradigm, 
+                            vars = c("T_LEEFT", "T_PTNMT", "Grade", 
+                                     "Histology_3bin", "ER_5bin", "PR_5bin", 
+                                     "HER2.cat.rev.redone"),
+                            includeNA = FALSE,
+                            strata = "sampled"
+)
+
+save_sampled_table <- print(sampled_table, nonnormal = c("T_LEEFT"), formatOptions = list(big.mark = ","))
+
+# write.xlsx(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.xlsx"))
+# write.csv(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.csv"))
+```
+
+Excluding patients without ER TMA from the stratified sampling process seems to reduce the certainty of yielding a representative sample.
+
+I would suggest to not filter for the presence of ER TMA. The nr of patients without TMA's for ER is `r sum(is.na(stratified_proportions_sampled_data$TMA_NUMBER_ER_IHC_ER_E2_C2))`.
+
+#### Binning TNM stage
+```{r}
+paradigm$T_PTNMT_3bin <- replace(x=paradigm$T_PTNMT,
+                              which(paradigm$T_PTNMT == "1" |  # 62
+                                      paradigm$T_PTNMT == "1A" |  # 87
+                                      paradigm$T_PTNMT == "1B"),  # 331
+                              values = "1-1B")
+paradigm$T_PTNMT_3bin <- replace(x=paradigm$T_PTNMT_bin,
+                              which(paradigm$T_PTNMT_bin == "2" |  # 618
+                                      paradigm$T_PTNMT_bin == "3" |  # 27
+                                      paradigm$T_PTNMT_bin == "4" |  # 2
+                                      paradigm$T_PTNMT_bin == "4B" |  # 5
+                                      paradigm$T_PTNMT_bin == "4D"),  # 1
+                              values = "2-4D")  # 27
+```
+
+```{r}
+set.seed(180120241)
+
+# "T_PTNMT_3bin", "ER.cat.final", "PR.cat.final"
+variables_to_stratify <- c("Grade", "T_PTNMT_4bin")
+#ignore_na <- c("Grade", "T_PTNMT", "TMA_NUMBER_ER_IHC_ER_E2_C2")
+
+paradigm %>%
+  filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+  group_by(across(all_of(variables_to_stratify))) %>%
+  summarise(freq = n()) %>%
+  as.data.frame()
+
+# Calculate strata frequencies
+strata_freq <- paradigm %>%
+  filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+  group_by(across(all_of(variables_to_stratify))) %>%
+  summarise(freq = n())
+
+# add probability to each row
+paradigm_with_subgroups <- paradigm %>%
+  filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+  group_by(across(all_of(variables_to_stratify))) %>%
+  mutate(subgroup = group_indices()) %>%
+  ungroup()
+
+paradigm_with_subgroups <- paradigm_with_subgroups %>%
+  left_join(strata_freq, by = c("Grade", "T_PTNMT_4bin")) %>%
+  mutate(
+    subgroup = as.numeric(as.character(subgroup)),
+    probability = strata_freq$freq[match(subgroup, names(table(subgroup)))] / sum(strata_freq$freq)
+  ) %>%
+  select(-freq)  # Optional: Remove the freq column
+
+stratified_proportions_sampled_data <- paradigm_with_subgroups %>%
+  sample_n(size = 240, replace = FALSE, weight = probability)
+```
+
+```{r}
+paradigm$sampled <- ifelse(paradigm$palga_nr %in% stratified_proportions_sampled_data$palga_nr, "yes", "no")
+
+# https://www.rdocumentation.org/packages/tableone/versions/0.12.0/topics/CreateTableOne
+sampled_table <- CreateTableOne(data = paradigm, 
+                            vars = c("T_LEEFT", "T_PTNMT", "Grade", 
+                                     "Histology_3bin", "ER_5bin", "PR_5bin", 
+                                     "HER2.cat.rev.redone"),
+                            includeNA = FALSE,
+                            strata = "sampled"
+)
+
+save_sampled_table <- print(sampled_table, nonnormal = c("T_LEEFT"), formatOptions = list(big.mark = ","))
+
+# write.xlsx(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.xlsx"))
+# write.csv(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.csv"))
+```
+
+Further binning, as expected, does not improve sampling. 
+
+
+#### Using initial_split()
+```{r}
+stratify <- initial_split(paradigm_with_subgroups, prop=2/17, strata="subgroup")
+stratified_proportions_sampled_data <- training(stratify)
+```
+
+```{r}
+paradigm$sampled <- ifelse(paradigm$palga_nr %in% stratified_proportions_sampled_data$palga_nr, "yes", "no")
+
+# https://www.rdocumentation.org/packages/tableone/versions/0.12.0/topics/CreateTableOne
+sampled_table <- CreateTableOne(data = paradigm, 
+                            vars = c("T_LEEFT", "T_PTNMT", "Grade", 
+                                     "Histology_3bin", "ER_5bin", "PR_5bin", 
+                                     "HER2.cat.rev.redone"),
+                            includeNA = FALSE,
+                            strata = "sampled"
+)
+
+save_sampled_table <- print(sampled_table, nonnormal = c("T_LEEFT"), formatOptions = list(big.mark = ","))
+
+# write.xlsx(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.xlsx"))
+# write.csv(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.csv"))
+```
