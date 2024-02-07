@@ -18,7 +18,7 @@ knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE)
 ```{r install and load packages}
 required_packages <- c("fs", "openxlsx", "haven", "readxl", "stringr", "ggplot2",
                        "dplyr", "hrbrthemes", "tableone", "survival", "mgcv", 
-                       "rms", "survminer", "rsample")
+                       "rms", "survminer", "rsample", "tidymodels")
 install_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
 if(length(install_packages)) install.packages(install_packages)
 
@@ -36,6 +36,7 @@ library(mgcv)
 library(rms)
 library(survminer)
 library(rsample)
+library(tidymodels)
 ```
 
 ```{r custom functions}
@@ -520,7 +521,7 @@ ggsurvplot(km_model,
            #conf.int=T,
            pval = TRUE,
            title = "Overall Survival",
-           ylim = c(40, 100),
+           #ylim = c(40, 100),
            xlab = "Time (years)", 
            ylab = "Overall survival (%)",
            break.time.by = 5
@@ -528,7 +529,7 @@ ggsurvplot(km_model,
 ```
 </div>
 
-0-50-80 split
+1-10-50-80 split
 ```{r}
 # kaplan-meier with OS (other groups)
 km_model <- survfit(Surv(VITFUP.final/365.25, as.numeric(fustat.binary)) ~ ER_5bin, data = paradigm)
@@ -546,7 +547,7 @@ ggsurvplot(km_model,
            #conf.int=T,
            pval = TRUE,
            title = "Overall Survival",
-           ylim = c(40, 100),
+           #ylim = c(40, 100),
            xlab = "Time (years)", 
            ylab = "Overall survival (%)",
            break.time.by = 5
@@ -615,7 +616,7 @@ ggsurvplot(km_model,
            #conf.int=T,
            pval = TRUE,
            title = "Recurrence free survival",
-           ylim = c(40, 100),
+           #ylim = c(40, 100),
            xlab = "Time (years)", 
            ylab = "RFS event free (%)",
            break.time.by = 5
@@ -623,7 +624,7 @@ ggsurvplot(km_model,
 ```
 </div>
 
-0-50-80 split
+1-10-50-80 split
 ```{r}
 # kaplan-meier with RFS (other groups)
 km_model <- survfit(Surv(rfs.td/365.25, rfs.event) ~ ER_5bin, data = paradigm)
@@ -641,7 +642,7 @@ ggsurvplot(km_model,
            #conf.int=T,
            pval = TRUE,
            title = "Recurrence free survival",
-           ylim = c(40, 100),
+           #ylim = c(40, 100),
            xlab = "Time (years)", 
            ylab = "RFS event free (%)",
            break.time.by = 5
@@ -659,7 +660,7 @@ summary(surv_model)
 50-80 split
 <button class="btn btn-primary" data-toggle="collapse" data-target="IDFS km1"> Show/Hide </button>  
 <div id="IDFS km1" class="collapse">  
-```{r IDFS Kaplan-Meier}
+```{r IDFS Kaplan-Meier, results='hide'}
 # kaplan-meier with IDFS
 km_model <- survfit(Surv(idfs.td/365.25, idfs) ~ ER_5080, data = paradigm)
 ggsurvplot(km_model, 
@@ -676,7 +677,7 @@ ggsurvplot(km_model,
            #conf.int=T,
            pval = TRUE,
            title = "Invasive disease free survival",
-           ylim = c(40, 100),
+           #ylim = c(40, 100),
            xlab = "Time (years)", 
            ylab = "RFS event free (%)",
            break.time.by = 5
@@ -684,8 +685,8 @@ ggsurvplot(km_model,
 ```
 </div>
 
-0-50-80 split
-```{r}
+1-10-50-80 split
+```{r, results='hide'}
 # kaplan-meier with IDFS (other groups)
 km_model <- survfit(Surv(idfs.td/365.25, idfs) ~ ER_5bin, data = paradigm)
 ggsurvplot(km_model, 
@@ -702,7 +703,7 @@ ggsurvplot(km_model,
            #conf.int=T,
            pval = TRUE,
            title = "Invasive disease free survival",
-           ylim = c(40, 100),
+           #ylim = c(40, 100),
            xlab = "Time (years)", 
            ylab = "RFS event free (%)",
            break.time.by = 5
@@ -779,11 +780,11 @@ ggsurvplot(km_model,
            risk.table.fontsize = 2.5,
            tables.height = 0.3,
            legend.title = "ER%",
-           legend.labs =c("0-50%", "50-80%", "80-100%"),
+           legend.labs =c("1-50%", "50-80%", "80-100%"),
            #conf.int=T,
            pval = TRUE,
            title = "Overall Survival",
-           ylim = c(40, 100),
+           #ylim = c(40, 100),
            xlab = "Time (years)", 
            ylab = "Overall survival (%)",
            break.time.by = 5
@@ -791,7 +792,7 @@ ggsurvplot(km_model,
 ```
 </div>
 
-0-50-80 split
+1-10-50-80 split
 ```{r}
 # kaplan-meier with OS (other groups)
 km_model <- survfit(Surv(VITFUP.final/365.25, as.numeric(fustat.binary)) ~ ER_5bin, data = paradigm_er_pos_her2_neg)
@@ -809,7 +810,7 @@ ggsurvplot(km_model,
            #conf.int=T,
            pval = TRUE,
            title = "Overall Survival",
-           ylim = c(40, 100),
+           ##ylim = c(40, 100),
            xlab = "Time (years)", 
            ylab = "Overall survival (%)",
            break.time.by = 5
@@ -822,16 +823,339 @@ So the number of positive cells as scored by pathologists could possibly detect 
 Questions:  
 - to Hugo: what characteristics do pathologist use to evaluate the ER (positive cell) percentage. Does it include intensity as well?
 
-(Are these km plots correct?? Given the nr at risk table...)
+### Multivariable survival ER% bins (ER+HER2-)
+```{r}
+paradigm_er_pos_her2_neg$ER_4bin <- replace(x=paradigm_er_pos_her2_neg$ER.num,
+                            which(as.numeric(paradigm_er_pos_her2_neg$ER.num) >= 1 &
+                                    as.numeric(paradigm_er_pos_her2_neg$ER.num) <=10),
+                            values="1-10")
+paradigm_er_pos_her2_neg$ER_4bin <- replace(x=paradigm_er_pos_her2_neg$ER_4bin,
+                            which(as.numeric(paradigm_er_pos_her2_neg$ER_4bin) > 10 &
+                                    as.numeric(paradigm_er_pos_her2_neg$ER_4bin) <=50),
+                            values="11-50")
+paradigm_er_pos_her2_neg$ER_4bin <- replace(x=paradigm_er_pos_her2_neg$ER_4bin,
+                            which(as.numeric(paradigm_er_pos_her2_neg$ER_4bin) > 50 &
+                                    as.numeric(paradigm_er_pos_her2_neg$ER_4bin) <=80),
+                            values="51-80")
+paradigm_er_pos_her2_neg$ER_4bin <- replace(x=paradigm_er_pos_her2_neg$ER_4bin,
+                            which(as.numeric(paradigm_er_pos_her2_neg$ER_4bin) > 80),
+                            values="81-100")
+```
+
+```{r}
+surv_model <- coxph(Surv(VITFUP.final, as.numeric(fustat.binary)) ~ ER_4bin+ T_LEEFT + Grade + T_PTNMT_4bin, 
+                              data = paradigm_er_pos_her2_neg)
+summary(surv_model)
+```
+
+#### without 1-10%
+```{r}
+paradigm_er_pos_her2_neg$ER_3bin <- replace(x=paradigm_er_pos_her2_neg$ER.num,
+                            which(as.numeric(paradigm_er_pos_her2_neg$ER.num) > 10 &
+                                    as.numeric(paradigm_er_pos_her2_neg$ER.num) <=50),
+                            values="11-50")
+paradigm_er_pos_her2_neg$ER_3bin <- replace(x=paradigm_er_pos_her2_neg$ER_3bin,
+                            which(as.numeric(paradigm_er_pos_her2_neg$ER_3bin) > 50 &
+                                    as.numeric(paradigm_er_pos_her2_neg$ER_3bin) <=80),
+                            values="51-80")
+paradigm_er_pos_her2_neg$ER_3bin <- replace(x=paradigm_er_pos_her2_neg$ER_3bin,
+                            which(as.numeric(paradigm_er_pos_her2_neg$ER_3bin) > 80),
+                            values="81-100")
+paradigm_er_pos_her2_neg$ER_3bin <- replace(x=paradigm_er_pos_her2_neg$ER_3bin,
+                            which(as.numeric(paradigm_er_pos_her2_neg$ER_3bin) <= 10),
+                            values=NA)
+```
+
+```{r}
+surv_model <- coxph(Surv(VITFUP.final, as.numeric(fustat.binary)) ~ ER_3bin + T_LEEFT + Grade + T_PTNMT_4bin, 
+                              data = paradigm_er_pos_her2_neg)
+summary(surv_model)
+```
+
+Assumptions  
+Proportional hazards
+<button class="btn btn-primary" data-toggle="collapse" data-target="OS prophaz 2"> Show/Hide </button>  
+<div id="OS prophaz 2" class="collapse">  
+```{r OS assumptions 2}
+# test proportional hazards assumption
+proportional_hazard_assumption <- cox.zph(surv_model)
+print(proportional_hazard_assumption)
+plot(proportional_hazard_assumption)
+```
+</div>
+
+Linearity of log-hazards
+<button class="btn btn-primary" data-toggle="collapse" data-target="OS log-haz 2"> Show/Hide </button>  
+<div id="OS log-haz 2" class="collapse">  
+```{r}
+# test linearity of log-hazards
+# gam_model <- mgcv::gam(Surv(VITFUP.final/365.25, as.numeric(fustat.binary)) ~ mgcv::s(as.numeric(ER.num)) + T_LEEFT + Grade + T_PTNMT_4bin, data = paradigm_er_pos_her2_neg, family = "cox") # error invalid type list
+# plot(gam_model)
+```
+</div>
+
+Collinearity
+<button class="btn btn-primary" data-toggle="collapse" data-target="OS collin 2"> Show/Hide </button>  
+<div id="OS collin 2" class="collapse">  
+```{r}
+# test collinearity 
+vif_values <- rms::vif(surv_model)
+print(vif_values)
+```
+</div>
+
+#### 11-50 vs. 51-99 vs. 100
+```{r}
+paradigm_er_pos_her2_neg$ER_99bin <- replace(x=paradigm_er_pos_her2_neg$ER.num,
+                            which(as.numeric(paradigm_er_pos_her2_neg$ER.num) > 10 &
+                                    as.numeric(paradigm_er_pos_her2_neg$ER.num) <=50),
+                            values="11-50")
+paradigm_er_pos_her2_neg$ER_99bin <- replace(x=paradigm_er_pos_her2_neg$ER_99bin,
+                            which(as.numeric(paradigm_er_pos_her2_neg$ER_99bin) > 50 &
+                                    as.numeric(paradigm_er_pos_her2_neg$ER_99bin) <=99),
+                            values="51-99")
+paradigm_er_pos_her2_neg$ER_99bin <- replace(x=paradigm_er_pos_her2_neg$ER_99bin,
+                            which(as.numeric(paradigm_er_pos_her2_neg$ER_99bin) > 99),
+                            values="100")
+paradigm_er_pos_her2_neg$ER_99bin <- replace(x=paradigm_er_pos_her2_neg$ER_99bin,
+                            which(as.numeric(paradigm_er_pos_her2_neg$ER_99bin) <= 10),
+                            values=NA)
+```
+
+```{r}
+table(paradigm_er_pos_her2_neg$ER_99bin)
+```
+
+```{r}
+surv_model <- coxph(Surv(VITFUP.final, as.numeric(fustat.binary)) ~ ER_99bin + T_LEEFT + Grade + T_PTNMT_4bin, 
+                              data = paradigm_er_pos_her2_neg)
+summary(surv_model)
+```
+
+Assumptions  
+Proportional hazards
+<button class="btn btn-primary" data-toggle="collapse" data-target="OS prophaz 2"> Show/Hide </button>  
+<div id="OS prophaz 2" class="collapse">  
+```{r OS assumptions 2}
+# test proportional hazards assumption
+proportional_hazard_assumption <- cox.zph(surv_model)
+print(proportional_hazard_assumption)
+plot(proportional_hazard_assumption)
+```
+</div>
+
+Linearity of log-hazards
+<button class="btn btn-primary" data-toggle="collapse" data-target="OS log-haz 2"> Show/Hide </button>  
+<div id="OS log-haz 2" class="collapse">  
+```{r}
+# test linearity of log-hazards
+# gam_model <- mgcv::gam(Surv(VITFUP.final/365.25, as.numeric(fustat.binary)) ~ mgcv::s(as.numeric(ER.num)) + T_LEEFT + Grade + T_PTNMT_4bin, data = paradigm_er_pos_her2_neg, family = "cox") # error invalid type list
+# plot(gam_model)
+```
+</div>
+
+Collinearity
+<button class="btn btn-primary" data-toggle="collapse" data-target="OS collin 2"> Show/Hide </button>  
+<div id="OS collin 2" class="collapse">  
+```{r}
+# test collinearity 
+vif_values <- rms::vif(surv_model)
+print(vif_values)
+```
+</div>
+
+```{r}
+# kaplan-meier with OS (other groups)
+km_model <- survfit(Surv(VITFUP.final/365.25, as.numeric(fustat.binary)) ~ ER_99bin, data = paradigm_er_pos_her2_neg)
+ggsurvplot(km_model, 
+           data=paradigm_er_pos_her2_neg,
+           censor.shape = "|",
+           censor.size = 1,
+           fun="pct",
+           palette = "lancet",
+           risk.table = TRUE,
+           risk.table.fontsize = 2.5,
+           tables.height = 0.3,
+           legend.title = "ER%",
+           legend.labs =c("11-50", "51-99", "100%"),
+           #conf.int=T,
+           pval = TRUE,
+           title = "Overall Survival",
+           #ylim = c(40, 100),
+           xlab = "Time (years)", 
+           ylab = "Overall survival (%)",
+           break.time.by = 5
+)
+```
+
+#### 11-99 vs. 100
+```{r}
+paradigm_er_pos_her2_neg$ER_2bin <- replace(x=paradigm_er_pos_her2_neg$ER.num,
+                            which(as.numeric(paradigm_er_pos_her2_neg$ER.num) > 10 &
+                                    as.numeric(paradigm_er_pos_her2_neg$ER.num) <=99),
+                            values="11-99")
+paradigm_er_pos_her2_neg$ER_2bin <- replace(x=paradigm_er_pos_her2_neg$ER_2bin,
+                            which(as.numeric(paradigm_er_pos_her2_neg$ER_2bin) > 99),
+                            values="100")
+paradigm_er_pos_her2_neg$ER_2bin <- replace(x=paradigm_er_pos_her2_neg$ER_2bin,
+                            which(as.numeric(paradigm_er_pos_her2_neg$ER_2bin) <= 10),
+                            values=NA)
+```
+
+```{r}
+table(paradigm_er_pos_her2_neg$ER_2bin)
+```
+
+```{r}
+surv_model <- coxph(Surv(VITFUP.final, as.numeric(fustat.binary)) ~ ER_2bin + T_LEEFT + Grade + T_PTNMT_4bin, 
+                              data = paradigm_er_pos_her2_neg)
+summary(surv_model)
+```
+
+Assumptions  
+Proportional hazards
+<button class="btn btn-primary" data-toggle="collapse" data-target="OS prophaz 2"> Show/Hide </button>  
+<div id="OS prophaz 2" class="collapse">  
+```{r OS assumptions 2}
+# test proportional hazards assumption
+proportional_hazard_assumption <- cox.zph(surv_model)
+print(proportional_hazard_assumption)
+plot(proportional_hazard_assumption)
+```
+</div>
+
+Linearity of log-hazards
+<button class="btn btn-primary" data-toggle="collapse" data-target="OS log-haz 2"> Show/Hide </button>  
+<div id="OS log-haz 2" class="collapse">  
+```{r}
+# test linearity of log-hazards
+# gam_model <- mgcv::gam(Surv(VITFUP.final/365.25, as.numeric(fustat.binary)) ~ mgcv::s(as.numeric(ER.num)) + T_LEEFT + Grade + T_PTNMT_4bin, data = paradigm_er_pos_her2_neg, family = "cox") # error invalid type list
+# plot(gam_model)
+```
+</div>
+
+Collinearity
+<button class="btn btn-primary" data-toggle="collapse" data-target="OS collin 2"> Show/Hide </button>  
+<div id="OS collin 2" class="collapse">  
+```{r}
+# test collinearity 
+vif_values <- rms::vif(surv_model)
+print(vif_values)
+```
+</div>
+
+```{r}
+# kaplan-meier with OS (other groups)
+km_model <- survfit(Surv(VITFUP.final/365.25, as.numeric(fustat.binary)) ~ ER_2bin, data = paradigm_er_pos_her2_neg)
+ggsurvplot(km_model, 
+           data=paradigm_er_pos_her2_neg,
+           censor.shape = "|",
+           censor.size = 1,
+           fun="pct",
+           palette = "lancet",
+           risk.table = TRUE,
+           risk.table.fontsize = 2.5,
+           tables.height = 0.3,
+           legend.title = "ER%",
+           legend.labs =c("11-99", "100%"),
+           #conf.int=T,
+           pval = TRUE,
+           title = "Overall Survival",
+           #ylim = c(40, 100),
+           xlab = "Time (years)", 
+           ylab = "Overall survival (%)",
+           break.time.by = 5
+)
+```
 
 ### Sampling
-#### Stratified/Proportional random sampling (using initial_split())
+#### Proportional random sampling
+```{r}
+paradigm <- paradigm %>%
+  mutate(
+    Histology_3bin = case_when(
+      HISTOLOGICAL_SUBTYPErec == "Carcinoma NST" ~ "No special type",
+      HISTOLOGICAL_SUBTYPErec == "Lobular carcinoma" ~ "Lobular",
+      TRUE ~ "Other"
+    )
+  )
+
+# paradigm <- paradigm %>%
+#      mutate(
+#          Histology_3bin = case_when(
+#              as.numeric(ER.num) == 0 ~ "0",
+#              between(as.numeric(ER.num), 1, 10) ~ "1-10",
+#              between(as.numeric(ER.num), 11, 50) ~ "11-50",
+#              between(as.numeric(ER.num), 51, 80) ~ "51-80",
+#              as.numeric(ER.num) > 80 ~ "81-100"
+#          )
+#      )
+
+paradigm <- paradigm %>%
+     mutate(
+         ER_5bin = case_when(
+             as.numeric(ER.num) == 0 ~ "0",
+             between(as.numeric(ER.num), 1, 10) ~ "1-10",
+             between(as.numeric(ER.num), 11, 50) ~ "11-50",
+             between(as.numeric(ER.num), 51, 80) ~ "51-80",
+             as.numeric(ER.num) > 80 ~ "81-100"
+         )
+     )
+
+paradigm <- paradigm %>%
+     mutate(
+         PR_5bin = case_when(
+             as.numeric(PR.num) == 0 ~ "0",
+             between(as.numeric(PR.num), 1, 10) ~ "1-10",
+             between(as.numeric(PR.num), 11, 50) ~ "11-50",
+             between(as.numeric(PR.num), 51, 80) ~ "51-80",
+             as.numeric(PR.num) > 80 ~ "81-100"
+         )
+     )
+paradigm$rfs.event <- as.character(paradigm$rfs.event)
+```
+
+
 ```{r}
 set.seed(220120241)
 ```
 
 ```{r}
-stratify <- initial_split(paradigm_with_subgroups, prop=2/17, strata="subgroup")
+# "T_PTNMT_3bin", "ER.cat.final", "PR.cat.final", "fustat.binary"
+variables_to_stratify <- c("Grade", "T_PTNMT", "death.event") 
+#ignore_na <- c("Grade", "T_PTNMT", "TMA_NUMBER_ER_IHC_ER_E2_C2")
+
+paradigm %>%
+  #filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+  #filter(!any(is.na(across(all_of(variables_to_stratify))))) %>%
+  group_by(across(all_of(variables_to_stratify))) %>%
+  summarise(freq = n()) %>%
+  as.data.frame()
+
+# Calculate strata frequencies
+strata_freq <- paradigm %>%
+  #filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+  #filter(!any(is.na(across(all_of(variables_to_stratify))))) %>%
+  group_by(across(all_of(variables_to_stratify))) %>%
+  summarise(freq = n())
+
+# add subgroups
+paradigm_with_subgroups <- paradigm %>%
+  #filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+  #filter(!any(is.na(across(all_of(variables_to_stratify))))) %>%
+  group_by(across(all_of(variables_to_stratify))) %>%
+  mutate(subgroup = group_indices()) %>%
+  ungroup()
+
+paradigm_with_subgroups <- paradigm_with_subgroups %>%
+  left_join(strata_freq, by = c("Grade", "T_PTNMT")) %>%
+  mutate(
+    subgroup = as.numeric(as.character(subgroup)),
+    probability = strata_freq$freq[match(subgroup, names(table(subgroup)))] / sum(strata_freq$freq)
+  ) %>%
+  select(-freq)  # Optional: Remove the freq column
+
+stratify <- initial_split(paradigm_with_subgroups, prop=1/35, strata="subgroup")
 stratified_proportions_sampled_data <- training(stratify)
 ```
 
@@ -842,15 +1166,253 @@ paradigm$sampled <- ifelse(paradigm$palga_nr %in% stratified_proportions_sampled
 sampled_table <- CreateTableOne(data = paradigm, 
                             vars = c("T_LEEFT", "T_PTNMT", "Grade", 
                                      "Histology_3bin", "ER_5bin", "PR_5bin", 
-                                     "HER2.cat.rev.redone"),
+                                     "HER2.cat.rev.redone", "VITFUP.final", 
+                                     "death.event", "fustat.binary", "rfs.event"
+                                     ),
                             includeNA = FALSE,
                             strata = "sampled"
 )
 
-save_sampled_table <- print(sampled_table, nonnormal = c("T_LEEFT"), formatOptions = list(big.mark = ","))
+save_sampled_table <- print(sampled_table, nonnormal = c("T_LEEFT", "VITFUP.final"), formatOptions = list(big.mark = ","))
 
 # write.xlsx(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.xlsx"))
 # write.csv(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.csv"))
 ```
 Excluding patients without ER TMA from the stratified sampling process might reduce the certainty of yielding a representative sample.
 I would suggest to not filter for the presence of ER TMA. The nr of patients without TMA's for ER is `r sum(is.na(stratified_proportions_sampled_data$TMA_NUMBER_ER_IHC_ER_E2_C2))`.
+
+#### Proportional random sampling ENRICHED 10-90%
+```{r}
+paradigm <- paradigm %>%
+     mutate(
+         ER_10bin = case_when(
+             as.numeric(ER.num) == 0 ~ "0",
+             between(as.numeric(ER.num), 1, 10) ~ "1-10",
+             between(as.numeric(ER.num), 11, 20) ~ "11-20",
+             between(as.numeric(ER.num), 21, 30) ~ "21-30",
+             between(as.numeric(ER.num), 31, 40) ~ "31-40",
+             between(as.numeric(ER.num), 41, 50) ~ "41-50",
+             between(as.numeric(ER.num), 51, 60) ~ "51-60",
+             between(as.numeric(ER.num), 61, 70) ~ "61-70",
+             between(as.numeric(ER.num), 71, 80) ~ "71-80",
+             between(as.numeric(ER.num), 81, 90) ~ "81-90",
+             as.numeric(ER.num) > 90 ~ "91-100"
+         )
+     )
+
+paradigm$rfs.event <- as.character(paradigm$rfs.event)
+```
+
+```{r}
+set.seed(060220241)
+```
+
+```{r}
+sample_from_bin <- function(data, binned_vars, size) {
+  strata <- sort(na.omit(unique(data[[binned_vars]])))
+  
+  sampled_data <- lapply(strata, function(stratum) {
+    bin_indices <- which(data[[binned_vars]] == stratum)
+    sample_indices <- sample(bin_indices, size = size, replace = FALSE)
+    return(data[sample_indices, , drop = FALSE])
+  })
+  
+  return(do.call(rbind, sampled_data))
+}
+```
+
+```{r}
+random_bin_sample <- sample_from_bin(paradigm, binned_vars = "ER_10bin", size = 10)
+```
+
+```{r}
+paradigm$sampled <- ifelse(paradigm$palga_nr %in% random_bin_sample$palga_nr, "yes", "no")
+
+# https://www.rdocumentation.org/packages/tableone/versions/0.12.0/topics/CreateTableOne
+sampled_table <- CreateTableOne(data = paradigm, 
+                            vars = c("T_LEEFT", "T_PTNMT", "Grade", 
+                                     "Histology_3bin", "ER_10bin", "PR_5bin", 
+                                     "HER2.cat.rev.redone", "VITFUP.final", 
+                                     "death.event", "fustat.binary", "rfs.event"
+                                     ),
+                            includeNA = TRUE,
+                            strata = "sampled"
+)
+
+save_sampled_table <- print(sampled_table, nonnormal = c("T_LEEFT", "VITFUP.final"), formatOptions = list(big.mark = ","))
+
+# write.xlsx(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.xlsx"))
+# write.csv(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.csv"))
+```
+
+#### Proportional random sampling ENRICHED 10-90%, PROPORTIONAL
+```{r}
+set.seed(070220242)
+```
+
+```{r}
+sample_from_bin_proportional <- function(data, binned_vars, size, variables_to_stratify) {
+  # Calculate strata frequencies
+  strata_freq <- data %>%
+    #filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+    group_by(across(all_of(variables_to_stratify))) %>%
+    summarise(freq = n())
+
+  # Add subgroups
+  data_with_subgroups <- data %>%
+    #filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+    group_by(across(all_of(variables_to_stratify))) %>%
+    mutate(subgroup = cur_group_id()) %>%
+    ungroup()
+
+  data_with_subgroups <- data_with_subgroups %>%
+    left_join(strata_freq, by = variables_to_stratify) %>%
+    mutate(
+      subgroup = as.numeric(as.character(subgroup)),
+      probability = strata_freq$freq[match(subgroup, names(table(subgroup)))] / sum(strata_freq$freq)
+    ) %>%
+    select(-freq)  # Optional: Remove the freq column
+  
+  # Check NAs in variables to stratify for each binned_vars
+  bins <- sort(na.omit(unique(data[[binned_vars]])))
+  for (bin_var in binned_vars){
+    for (strat_var in variables_to_stratify){
+      for (bin in bins){
+        bin_indices <- which(data_with_subgroups[[bin_var]] == bin)
+        non_na_data <- data_with_subgroups[bin_indices, strat_var]
+        nas_in_non_na_bins <- length(which(is.na(non_na_data)))
+        print(paste(strat_var, ": NAs in ", bin, " = ", nas_in_non_na_bins, sep=""))
+      }
+      na_bin_indices <- which(is.na(data_with_subgroups[ ,bin_var]))
+      na_bin <- data_with_subgroups[na_bin_indices, strat_var]
+      nas_na_bin <- length(which(is.na(na_bin)))
+      total_nas <- length(which(is.na(data_with_subgroups[ , strat_var])))
+      print(paste(nas_na_bin, "/", total_nas, " is NA in ", bin_var, " = NA", sep=""))
+    }
+  }
+  
+  # Sample from each stratum
+  sampled_data <- lapply(bins, function(bin) {
+    bin_indices <- which(data_with_subgroups[[binned_vars]] == bin)
+    stratum_data <- data_with_subgroups[bin_indices, ]
+    sample_indices <- sample(nrow(stratum_data), size = size, replace = FALSE, prob = stratum_data$probability)
+    return(stratum_data[sample_indices, , drop = FALSE])
+  })
+
+  # Combine sampled data from each bin
+  return(do.call(rbind, sampled_data))
+}
+```
+
+```{r}
+variables_to_stratify <- c("Grade", "death.event") # "T_PTNMT", "rfs.event"
+random_bin_sample_proportional <- sample_from_bin_proportional(paradigm, binned_vars = "ER_10bin", size = 10, variables_to_stratify)
+```
+
+```{r}
+paradigm$sampled <- ifelse(paradigm$palga_nr %in% random_bin_sample_proportional$palga_nr, "yes", "no")
+
+# https://www.rdocumentation.org/packages/tableone/versions/0.12.0/topics/CreateTableOne
+sampled_table <- CreateTableOne(data = paradigm, 
+                            vars = c("T_LEEFT", "T_PTNMT", "Grade", 
+                                     "Histology_3bin", "ER_10bin", "PR_5bin", 
+                                     "HER2.cat.rev.redone", "VITFUP.final", 
+                                     "death.event", "fustat.binary", "rfs.event"
+                                     ),
+                            includeNA = TRUE,
+                            strata = "sampled"
+)
+
+save_sampled_table <- print(sampled_table, nonnormal = c("T_LEEFT", "VITFUP.final"), formatOptions = list(big.mark = ","))
+
+# write.xlsx(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.xlsx"))
+# write.csv(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.csv"))
+```
+
+Grade is disproportionally sampled. This is because whenever Grade=NA, then binned ER (ER_10bin)=NA for most cases.
+
+#### Proportional random sampling ENRICHED 10-90%, PROPORTIONAL, IGNORE NAs
+```{r}
+set.seed(070220242)
+```
+
+```{r}
+sample_from_bin_proportional <- function(data, binned_vars, size, variables_to_stratify) {
+  # Calculate strata frequencies
+  strata_freq <- data %>%
+    filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+    group_by(across(all_of(variables_to_stratify))) %>%
+    summarise(freq = n())
+
+  # Add subgroups
+  data_with_subgroups <- data %>%
+    filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+    group_by(across(all_of(variables_to_stratify))) %>%
+    mutate(subgroup = cur_group_id()) %>%
+    ungroup()
+
+  data_with_subgroups <- data_with_subgroups %>%
+    left_join(strata_freq, by = variables_to_stratify) %>%
+    mutate(
+      subgroup = as.numeric(as.character(subgroup)),
+      probability = strata_freq$freq[match(subgroup, names(table(subgroup)))] / sum(strata_freq$freq)
+    ) %>%
+    select(-freq)  # Optional: Remove the freq column
+  
+  # Check NAs in variables to stratify for each binned_vars
+  bins <- sort(na.omit(unique(data[[binned_vars]])))
+  for (bin_var in binned_vars){
+    for (strat_var in variables_to_stratify){
+      for (bin in bins){
+        bin_indices <- which(data_with_subgroups[[bin_var]] == bin)
+        non_na_data <- data_with_subgroups[bin_indices, strat_var]
+        nas_in_non_na_bins <- length(which(is.na(non_na_data)))
+        print(paste(strat_var, ": NAs in ", bin, " = ", nas_in_non_na_bins, sep=""))
+      }
+      na_bin_indices <- which(is.na(data_with_subgroups[ ,bin_var]))
+      na_bin <- data_with_subgroups[na_bin_indices, strat_var]
+      nas_na_bin <- length(which(is.na(na_bin)))
+      total_nas <- length(which(is.na(data_with_subgroups[ , strat_var])))
+      print(paste(nas_na_bin, "/", total_nas, " is NA in ", bin_var, " = NA", sep=""))
+    }
+  }
+  
+  # Sample from each stratum
+  sampled_data <- lapply(bins, function(bin) {
+    bin_indices <- which(data_with_subgroups[[binned_vars]] == bin)
+    stratum_data <- data_with_subgroups[bin_indices, ]
+    sample_indices <- sample(nrow(stratum_data), size = size, replace = FALSE, prob = stratum_data$probability)
+    return(stratum_data[sample_indices, , drop = FALSE])
+  })
+
+  # Combine sampled data from each bin
+  return(do.call(rbind, sampled_data))
+}
+```
+
+```{r}
+variables_to_stratify <- c("Grade", "death.event") # "T_PTNMT", "rfs.event"
+random_bin_sample_proportional <- sample_from_bin_proportional(paradigm, binned_vars = "ER_10bin", size = 10, variables_to_stratify)
+```
+
+```{r}
+paradigm$sampled <- ifelse(paradigm$palga_nr %in% random_bin_sample_proportional$palga_nr, "yes", "no")
+
+# https://www.rdocumentation.org/packages/tableone/versions/0.12.0/topics/CreateTableOne
+sampled_table <- CreateTableOne(data = paradigm, 
+                            vars = c("T_LEEFT", "T_PTNMT", "Grade", 
+                                     "Histology_3bin", "ER_10bin", "PR_5bin", 
+                                     "HER2.cat.rev.redone", "VITFUP.final", 
+                                     "death.event", "fustat.binary", "rfs.event"
+                                     ),
+                            includeNA = TRUE,
+                            strata = "sampled"
+)
+
+save_sampled_table <- print(sampled_table, nonnormal = c("T_LEEFT", "VITFUP.final"), formatOptions = list(big.mark = ","))
+
+# write.xlsx(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.xlsx"))
+# write.csv(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.csv"))
+```
+
+Now the proportions of Grade are better.
