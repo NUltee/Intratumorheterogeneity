@@ -1416,7 +1416,19 @@ save_sampled_table <- print(sampled_table, nonnormal = c("T_LEEFT", "VITFUP.fina
 # write.xlsx(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.xlsx"))
 # write.csv(save_paradigm_table, file = fs::path(output_dir, "PARADIGM_patient_characteristics.csv"))
 temp_output_dir <- "C:/Users/n.ultee/PycharmProjects/ER_ITH_v1.0_python311_git/output_images/Clinical"
-write.csv(save_paradigm_table, file = fs::path(temp_output_dir, "PARADIGM_patient_characteristics.csv"))
+write.csv(save_paradigm_table, file = fs::path(temp_output_dir, "PARADIGM_patient_characteristics_WSI_SAMPLE.csv"))
 ```
 
 Now the proportions of Grade are better.
+
+```{r}
+# Retrieve T-numbers and Block numbers
+split_strings <- str_split(random_bin_sample_proportional$TUMORSLIDE_ASSESSED_REVISION_E1_C1, "/") # Split the strings
+patient_block_ids <- data.frame( 
+  `T nummer` = sapply(split_strings, `[`, 1),
+  `Bloknummer` = sapply(split_strings, `[`, 2)
+)
+
+# Print the resulting data frame
+write.xlsx(as.data.frame(patient_block_ids), file = fs::path(temp_output_dir, "PARADIGM_WSI_SAMPLE_Tnummer_Bloknummer.xlsx"))
+```
