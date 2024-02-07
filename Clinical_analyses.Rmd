@@ -437,7 +437,7 @@ Assumptions
 Proportional hazards
 <button class="btn btn-primary" data-toggle="collapse" data-target="OS prophaz"> Show/Hide </button>  
 <div id="OS prophaz" class="collapse">  
-```{r OS assumptions}
+```{r}
 # test proportional hazards assumption
 proportional_hazard_assumption <- cox.zph(surv_model)
 print(proportional_hazard_assumption)
@@ -735,7 +735,7 @@ Assumptions
 Proportional hazards
 <button class="btn btn-primary" data-toggle="collapse" data-target="OS prophaz 2"> Show/Hide </button>  
 <div id="OS prophaz 2" class="collapse">  
-```{r OS assumptions 2}
+```{r}
 # test proportional hazards assumption
 proportional_hazard_assumption <- cox.zph(surv_model)
 print(proportional_hazard_assumption)
@@ -876,7 +876,7 @@ Assumptions
 Proportional hazards
 <button class="btn btn-primary" data-toggle="collapse" data-target="OS prophaz 2"> Show/Hide </button>  
 <div id="OS prophaz 2" class="collapse">  
-```{r OS assumptions 2}
+```{r}
 # test proportional hazards assumption
 proportional_hazard_assumption <- cox.zph(surv_model)
 print(proportional_hazard_assumption)
@@ -936,7 +936,7 @@ Assumptions
 Proportional hazards
 <button class="btn btn-primary" data-toggle="collapse" data-target="OS prophaz 2"> Show/Hide </button>  
 <div id="OS prophaz 2" class="collapse">  
-```{r OS assumptions 2}
+```{r}
 # test proportional hazards assumption
 proportional_hazard_assumption <- cox.zph(surv_model)
 print(proportional_hazard_assumption)
@@ -1016,7 +1016,7 @@ Assumptions
 Proportional hazards
 <button class="btn btn-primary" data-toggle="collapse" data-target="OS prophaz 2"> Show/Hide </button>  
 <div id="OS prophaz 2" class="collapse">  
-```{r OS assumptions 2}
+```{r}
 # test proportional hazards assumption
 proportional_hazard_assumption <- cox.zph(surv_model)
 print(proportional_hazard_assumption)
@@ -1396,14 +1396,15 @@ random_bin_sample_proportional <- sample_from_bin_proportional(paradigm, binned_
 ```
 
 ```{r}
+
 paradigm$sampled <- ifelse(paradigm$palga_nr %in% random_bin_sample_proportional$palga_nr, "yes", "no")
 
 # https://www.rdocumentation.org/packages/tableone/versions/0.12.0/topics/CreateTableOne
 sampled_table <- CreateTableOne(data = paradigm, 
                             vars = c("T_LEEFT", "T_PTNMT", "Grade", 
                                      "Histology_3bin", "ER_10bin", "PR_5bin", 
-                                     "HER2.cat.rev.redone", "VITFUP.final", 
-                                     "death.event", "fustat.binary", "rfs.event"
+                                     "HER2.cat.rev.redone", "death.event", 
+                                     "rfs.event"
                                      ),
                             includeNA = TRUE,
                             strata = "sampled"
@@ -1411,8 +1412,11 @@ sampled_table <- CreateTableOne(data = paradigm,
 
 save_sampled_table <- print(sampled_table, nonnormal = c("T_LEEFT", "VITFUP.final"), formatOptions = list(big.mark = ","))
 
+
 # write.xlsx(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.xlsx"))
-# write.csv(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.csv"))
+# write.csv(save_paradigm_table, file = fs::path(output_dir, "PARADIGM_patient_characteristics.csv"))
+temp_output_dir <- "C:/Users/n.ultee/PycharmProjects/ER_ITH_v1.0_python311_git/output_images/Clinical"
+write.csv(save_paradigm_table, file = fs::path(temp_output_dir, "PARADIGM_patient_characteristics.csv"))
 ```
 
 Now the proportions of Grade are better.
