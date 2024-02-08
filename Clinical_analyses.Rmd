@@ -1340,13 +1340,13 @@ set.seed(070220242)
 sample_from_bin_proportional <- function(data, binned_vars, size, variables_to_stratify) {
   # Calculate strata frequencies
   strata_freq <- data %>%
-    filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+    #filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
     group_by(across(all_of(variables_to_stratify))) %>%
     summarise(freq = n())
 
   # Add subgroups
   data_with_subgroups <- data %>%
-    filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+    #filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
     group_by(across(all_of(variables_to_stratify))) %>%
     mutate(subgroup = cur_group_id()) %>%
     ungroup()
@@ -1406,7 +1406,7 @@ sampled_table <- CreateTableOne(data = paradigm,
                                      "HER2.cat.rev.redone", "death.event", 
                                      "rfs.event"
                                      ),
-                            includeNA = TRUE,
+                            includeNA = FALSE,
                             strata = "sampled"
 )
 
@@ -1420,6 +1420,63 @@ write.csv(save_paradigm_table, file = fs::path(temp_output_dir, "PARADIGM_patien
 ```
 
 Now the proportions of Grade are better.
+```{r}
+# Frequencies grade
+ggplot(paradigm, aes(x = ER_10bin, fill = Grade)) +
+  geom_bar(position = "stack") +
+  labs(title = "Stacked Histogram of ER_10bin by Grade",
+       x = "ER_10bin",
+       y = "Frequency") +
+  theme_minimal()
+```
+
+
+```{r}
+# Relative frequencies grade
+ggplot(paradigm, aes(x = ER_10bin, fill = Grade)) +
+  geom_bar(position = "fill") +
+  labs(title = "Stacked Histogram of ER_10bin by Grade (Relative Frequencies)",
+       x = "ER_10bin",
+       y = "Relative Frequency") +
+  scale_y_continuous(labels = scales::percent_format()) +  # Display y-axis as percentages
+  theme_minimal()
+```
+```{r}
+excluded_categories <- c("0", "61-70", "71-80", "81-90", "91-100")
+
+# Filter the data to exclude specified categories
+filtered_data <- paradigm %>%
+  filter(!ER_10bin %in% excluded_categories, !is.na(ER_10bin))
+
+# Create the ggplot
+ggplot(filtered_data, aes(x = ER_10bin, fill = Grade)) +
+  geom_bar(position = "stack") +
+  geom_text(
+    aes(label = after_stat(count)),
+    stat = "count",
+    position = position_stack(vjust = 0.5),  # Adjust the vertical position of the labels
+    color = "white", size = 3
+  ) +
+  labs(title = "Stacked Histogram of ER_10bin by Grade",
+       x = "ER_10bin",
+       y = "Frequency") +
+  theme_minimal()
+```
+```{r}
+# Grade distribution within ER% bins sampled population
+ggplot(random_bin_sample_proportional, aes(x = ER_10bin, fill = Grade)) +
+  geom_bar(position = "stack") +
+  geom_text(
+    aes(label = after_stat(count)),
+    stat = "count",
+    position = position_stack(vjust = 0.5),  # Adjust the vertical position of the labels
+    color = "white", size = 3
+  ) +
+  labs(title = "Stacked Histogram of ER_10bin by Grade",
+       x = "ER_10bin",
+       y = "Frequency") +
+  theme_minimal()
+```
 
 ```{r}
 # Retrieve T-numbers and Block numbers
