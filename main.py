@@ -469,6 +469,8 @@ plt.show()
 
 ### Import slide at specific level
 import openslide
+INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\svs_files'
+filename = r'T18-02695 I1 ER.svs'
 slide = openslide.OpenSlide(os.path.join(INPUT_PATH, filename))
 
 # Get information about the levels
@@ -502,6 +504,25 @@ gray_image = 1 - np.mean(sd_image, axis=-1)
 plt.imshow(gray_image, cmap="gray")
 plt.show()
 
+# Load the pre-trained Stardist model
+model = StarDist2D.from_pretrained('2D_paper_dsb2018')
+
+# Predict probabilities and labels
+# labels, probabilities = model.predict(gray_image)  # label -> radial distance; probability -> pixel/point is center
+labels, _ = model.predict_instances(normalize(gray_image))
+
+plt.subplot(1, 2, 1)
+plt.imshow(gray_image, cmap="gray")
+plt.axis("off")
+plt.title("input image")
+
+plt.subplot(1, 2, 2)
+plt.imshow(render_label(labels, img=gray_image))
+plt.axis("off")
+plt.title("prediction + input overlay")
+
+plt.show()
+
 ### Enhance edges ###
 from skimage.filters import sobel
 from scipy.ndimage import gaussian_filter
@@ -523,6 +544,26 @@ plt.title("sobel")
 
 plt.show()
 # it seems that the edges are even less well preserved
+
+# Load the pre-trained Stardist model
+model = StarDist2D.from_pretrained('2D_paper_dsb2018')
+
+# Predict probabilities and labels
+# labels, probabilities = model.predict(gray_image)  # label -> radial distance; probability -> pixel/point is center
+labels, _ = model.predict_instances(normalize(sobel_image))
+
+plt.subplot(1, 2, 1)
+plt.imshow(sobel_image, cmap="gray")
+plt.axis("off")
+plt.title("input image")
+
+plt.subplot(1, 2, 2)
+plt.imshow(render_label(labels, img=sobel_image))
+plt.axis("off")
+plt.title("prediction + input overlay")
+
+plt.show()
+
 #################################
 
 ### Feature enhancement
@@ -544,7 +585,6 @@ plt.title("Feature enhancement")
 
 plt.show()
 # only clear edges seem to become more clear, which does not improve cell segmentation
-##############################
 
 # Load the pre-trained Stardist model
 model = StarDist2D.from_pretrained('2D_paper_dsb2018')
@@ -569,6 +609,8 @@ plt.show()
 ### Cellpose ###
 ################
 # from cellpose import models
+
+
 
 ################ GRAVEYARD ################
 import numpy as np
