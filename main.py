@@ -15,16 +15,17 @@ from PIL import Image, ImageDraw
 import matplotlib.pyplot as plt
 import numpy as np
 from dlup.background_deprecated import get_mask  # use ahcore later
-from cv2 import circle, HoughCircles, HOUGH_GRADIENT, bitwise_and, FILLED
+# from cv2 import circle, HoughCircles, HOUGH_GRADIENT, bitwise_and, FILLED
 import slidescore
 import re
 import shutil
 from scipy import ndimage
 from skimage import measure, color
 from skimage.morphology import dilation, erosion, square
-from skimage.filters import try_all_threshold, threshold_mean
+from skimage.filters import try_all_threshold, threshold_mean, threshold_otsu
+from skimage.exposure import equalize_adapthist
 import warnings
-
+from cv2 import findContours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE, boundingRect
 
 token = ('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJOYW1lIjoiSEtTX1NhcmFfMjMxMjA0XyBJUkJtMTlfMTg1IiwiSUQiOiI1MzkzIiwiVmVy'
          'c2lvbiI6IjEuMCIsIkNhbkNyZWF0ZVVwbG9hZEZvbGRlcnMiOiJGYWxzZSIsIkNhblVwbG9hZCI6IkZhbHNlIiwiQ2FuRG93bmxvYWRTbGlkZ'
@@ -82,10 +83,6 @@ def remove_small_objects(original_mask, metric='mean', min_area_threshold=None, 
     Example:
     >>> new_mask = remove_small_objects(original_mask, min_area_threshold)
     """
-    # TO DO:
-    # 1) metric: mean, median, manual
-    # 2) std_scale, range_scale, threshold
-    # 3) make three different functions? And one central fucntion.
     # Label connected components in the mask
     labeled_mask, num_labels = measure.label(original_mask, connectivity=2, return_num=True)
 
@@ -147,10 +144,18 @@ def generate_mask(image, kernel_dilation=10, kernel_erosion=3):
     # fig, ax = try_all_threshold(dilated_min_eroded_img, figsize=(10, 8), verbose=False)
     # plt.show()
 
-    # Thresholding to create a binary mask
+    # # Mask does not work as well for mrxs, consider the following:
+    # # 1) Enhance contrast
+    # normalized_image = gray_image / gray_image.max()
+    # contrast_enhanced = equalize_adapthist(normalized_image)  # adaptive histogram equalization
+    # # 2) ?Use OTSU instead of mean? (hypothesis is that OTSU is fine for the svs files, but enhance is needed for mrxs
+    # threshold = threshold_otsu(contrast_enhanced)  # set threshold to segment (yes/no)
+    # mask = contrast_enhanced <= threshold  # dark pixels==False, bright pixels==True
+    # Result --> probably too inconsistent for svs files. Rather mask that detect too much than too little.
+
+    # # Thresholding to create a binary mask
     threshold = threshold_mean(dilated_min_eroded_img)  # set threshold to segment (yes/no)
-    inverse_binary = dilated_min_eroded_img <= threshold  # dark pixels==True, bright pixels==False
-    mask = 1-inverse_binary
+    mask = dilated_min_eroded_img >= threshold  # dark pixels==False, bright pixels==True
 
     # Remove small objects from the binary mask
     mask = remove_small_objects(mask, std_scale=0.5)
@@ -194,6 +199,67 @@ def tile_image(file_path, TARGET_MPP, TILE_SIZE, mask):
 
 
     return tiled_image
+
+def get_foreground_contour(image):
+    """
+    Retrieve the contour width and height of the full foreground (rectangular).
+
+    Parameters:
+    - binary_image (np array): binary image.
+
+    Returns:
+    - contour_width (int): width of rectangle contour around foreground.
+    - contour_height (int): height of rectangle contour around foreground.
+    """
+    # Find contours in the binary image
+    contours, _ = findContours(image, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE)
+    # RETR_EXTERNAL -> retrieves only the external contours of the shapes (ignores shapes within other shapes).
+    # CHAIN_APPROX_SIMPLE -> compresses horizontal, diagonal, and vertical segments and leaves only their end points.
+
+    # Calculate the bounding box coordinates for the entire foreground
+    _, _, contour_width, contour_height = boundingRect(np.vstack(contours))
+
+    return contour_width, contour_height
+
+def to_landscape(binary_image):
+    """
+    Rotate binary image to landscape if orientation is portrait.
+
+    Parameters:
+    - binary_image (np array): binary image.
+
+    Returns:
+    - landscape (np array): rotated binary image if foreground is not already in landscape orientation.
+    - binary_image (np array): original binary image if foreground is already in landscape orientation.
+    """
+    # TO DO: rotate original image as well
+    image = binary_image.astype(np.uint8)
+    width, height = get_foreground_contour(image)
+    if height > width:
+        landscape = np.rot90(image)
+        return landscape
+    elif width >= height:
+        return binary_image
+
+def controls_to_portrait(binary_image, controls):
+    """
+    Rotate binary image to portrait if orientation is landscape.
+
+    Parameters:
+    - binary_image (np array): binary image.
+
+    Returns:
+    - landscape (np array): rotated binary image if foreground is not already in landscape orientation.
+    - binary_image (np array): original binary image if foreground is already in landscape orientation.
+    """
+    # TO DO: rotate original image as well
+    image = binary_image.astype(np.uint8)
+    width, height = get_foreground_contour(image)
+    if height > width:
+        return controls
+    elif width >= height:
+        portrait = np.rot90(controls, k=3)  # rotate back to original position
+        return portrait
 
 def retrieve_objects_count_per_side(regions, image_width):
     """
@@ -272,8 +338,6 @@ def max_circularity_method(mask, regions):
 
     return controls
 
-    return mask
-
 def median_circularity_method(mask, regions):
     """
     Add docstring
@@ -322,8 +386,8 @@ def extract_round_objects_improved(mask,
     >>> result_objects, circularities_all, circularities_included = extract_round_objects(input_mask, circularity_threshold=0.2)
     """
     # Second small objects filter (permitted here because only controls are needed)
-    # TO DO: make this optional
     temp_mask = remove_small_objects(mask, metric='median', range_scale=0.2)
+    temp_mask = to_landscape(temp_mask)  # if not already in landscape, rotate
 
     # Label connected components in the binary mask
     labeled_mask, num_labels = measure.label(temp_mask, connectivity=2, return_num=True)
@@ -331,6 +395,7 @@ def extract_round_objects_improved(mask,
     # Measure properties of labeled regions
     regions = measure.regionprops(labeled_mask, intensity_image=temp_mask)
 
+    # ?TO DO: detect controls only in bounding box foreground
     width = mask.shape[1]
     objects_left, objects_right = retrieve_objects_count_per_side(regions, width)
     # if >1 object on >=1 sides do left_right, elif 0 objects on 1 side return original mask, else do max circularity
@@ -338,19 +403,20 @@ def extract_round_objects_improved(mask,
         warnings.warn("Zero objects detected on left/right side. Original mask will be returned", UserWarning)
         return mask
     elif objects_left == 1 or objects_right == 1:
-        controls = max_circularity_method(mask, regions)
+        controls = max_circularity_method(temp_mask, regions)
+        controls = controls_to_portrait(temp_mask, controls)
         return controls
     else:
-        controls = median_circularity_method(mask, regions)
+        controls = median_circularity_method(temp_mask, regions)
+        controls = controls_to_portrait(temp_mask, controls)
         return controls
 
-# INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\svs_files'
 INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\mrxs_files'
 import zipfile
 
 ####
 images = []
-# tiled_images = []
+tiled_images = []
 slide_images = []
 masks = []
 regionprops_controls = []
@@ -364,16 +430,13 @@ for filename in os.listdir(INPUT_PATH):
 
     # Load image
     slide_image = SlideImage.from_file_path(FILE_PATH)
+    slide_images.append(slide_image)
 
     # Convert image to numpy array
     max_slide = max(slide_image.size)
     size = max_slide * slide_image.mpp / 10  # Size is 10 mpp
     size = int(max([int(1 if int(size) == 0 else 2 ** (int(size) - 1).bit_length()), 512]))
     image = np.asarray(slide_image.get_thumbnail(size=(size, size)))
-
-    # Rotate mrxs images
-    image = np.rot90(image)
-
     images.append(image)  # remove later
 
     # Generate mask
@@ -385,6 +448,7 @@ for filename in os.listdir(INPUT_PATH):
     # TILE_SIZE = (10, 10)  # does not cause bg detection problem
     # tiled_image = tile_image(FILE_PATH, TARGET_MPP, TILE_SIZE, mask)
     # tiled_images.append(tiled_image)  # remove later
+    # # TO DO: fix tiling mrxs files
 
     # Detect controls by round object detection (regionprops)
     round_objects = extract_round_objects_improved(mask, circularity_threshold=0.01)
@@ -440,6 +504,19 @@ plt.show()
 ########################################################################################################################
 ################################################## UNDER CONSTRUCTION ##################################################
 ########################################################################################################################
+##################
+### MRXS FILES ###
+##################
+image = images[0]
+plt.imshow(image)
+plt.show()
+
+print(image.shape)  # (7577, 8192, 3)
+print(image.dtype)  # uint8
+
+plt.imshow(image[7000:7010, 0:10])
+plt.show()
+print(image[7000:7010, 0:10])
 
 ################
 ### Stardist ###
@@ -523,94 +600,84 @@ plt.title("prediction + input overlay")
 
 plt.show()
 
-### Enhance edges ###
-from skimage.filters import sobel
-from scipy.ndimage import gaussian_filter
-
-gradient_magnitude = sobel(sd_image)
-sigma = gradient_magnitude.max()
-smoothed_image = gaussian_filter(sd_image, sigma)
-sobel_image = 1 - np.mean(smoothed_image, axis=-1)
-
-plt.subplot(1, 2, 1)
-plt.imshow(gray_image, cmap="gray")
-plt.axis("off")
-plt.title("input image")
-
-plt.subplot(1, 2, 2)
-plt.imshow(sobel_image, cmap='gray')
-plt.axis("off")
-plt.title("sobel")
-
-plt.show()
-# it seems that the edges are even less well preserved
-
-# Load the pre-trained Stardist model
-model = StarDist2D.from_pretrained('2D_paper_dsb2018')
-
-# Predict probabilities and labels
-# labels, probabilities = model.predict(gray_image)  # label -> radial distance; probability -> pixel/point is center
-labels, _ = model.predict_instances(normalize(sobel_image))
-
-plt.subplot(1, 2, 1)
-plt.imshow(sobel_image, cmap="gray")
-plt.axis("off")
-plt.title("input image")
-
-plt.subplot(1, 2, 2)
-plt.imshow(render_label(labels, img=sobel_image))
-plt.axis("off")
-plt.title("prediction + input overlay")
-
-plt.show()
-
-#################################
-
-### Feature enhancement
-from skimage.exposure import equalize_hist
-enhanced_image = sd_image * gradient_magnitude
-# enhanced_image = np.power(enhanced_image, 2)
-enhanced_image = equalize_hist(enhanced_image)
-inv_enhanced_image = 1 - np.mean(enhanced_image, axis=-1)
-
-plt.subplot(1, 2, 1)
-plt.imshow(gray_image, cmap="gray")
-plt.axis("off")
-plt.title("Input image")
-
-plt.subplot(1, 2, 2)
-plt.imshow(inv_enhanced_image, cmap='gray')
-plt.axis("off")
-plt.title("Feature enhancement")
-
-plt.show()
-# only clear edges seem to become more clear, which does not improve cell segmentation
-
-# Load the pre-trained Stardist model
-model = StarDist2D.from_pretrained('2D_paper_dsb2018')
-
-# Predict probabilities and labels
-# labels, probabilities = model.predict(gray_image)  # label -> radial distance; probability -> pixel/point is center
-labels, _ = model.predict_instances(normalize(inv_enhanced_image))
-
-plt.subplot(1, 2, 1)
-plt.imshow(inv_enhanced_image, cmap="gray")
-plt.axis("off")
-plt.title("input image")
-
-plt.subplot(1, 2, 2)
-plt.imshow(render_label(labels, img=inv_enhanced_image))
-plt.axis("off")
-plt.title("prediction + input overlay")
-
-plt.show()
-
 ################
 ### Cellpose ###
 ################
-# from cellpose import models
+import openslide
+from cellpose import models, plot
+INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\svs_files'
+filename = r'T18-02695 I1 ER.svs'
+slide = openslide.OpenSlide(os.path.join(INPUT_PATH, filename))
+# slide = slide_images[7]
 
+# Get information about the levels
+levels = slide.level_count
+print(f"Number of levels: {levels}")
 
+# Choose the level for analysis (e.g., level 1)
+chosen_level = 0
+
+# Read the image at the chosen level
+# image_at_level = np.array(slide.read_region((0, 0), chosen_level, slide.level_dimensions[chosen_level]))[:, :, :3]
+
+# Specify the region of interest (ROI) coordinates
+roi_x, roi_y = 6000, 20000  # Example coordinates
+roi_width, roi_height = 1000, 1000  # Example dimensions
+
+# Read the image in the specified ROI
+image_roi = np.array(slide.read_region((roi_x, roi_y), 0, (roi_width, roi_height)))[:, :, :3]
+plt.imshow(image_roi)
+plt.show()
+
+# Close the slide object to free resources
+slide.close()
+
+# Convert the RGB image to grayscale if needed
+sd_image = normalize(image_roi.astype(np.float32))
+
+gray_image = 1 - np.mean(sd_image, axis=-1)
+plt.imshow(gray_image, cmap="gray")
+plt.show()
+
+# Cellpose
+model = models.Cellpose(gpu=True, model_type='cyto')
+masks, flows, styles, diams = model.eval(gray_image, diameter=None, channels=[0, 0])
+
+fig = plt.figure(figsize=(12, 5))
+plot.show_segmentation(fig, gray_image, masks, flows[0], channels=[0, 0])
+plt.tight_layout()
+plt.show()
+
+### Contrast stretching
+from skimage.exposure import equalize_adapthist, rescale_intensity
+
+# Try transformations
+contrast_stretched = rescale_intensity(gray_image, in_range='image', out_range=(0, 1))  # contrast stretching
+
+normalized_image = gray_image / gray_image.max()
+contrast_enhanced = equalize_adapthist(normalized_image)  # adaptive histogram equalization
+
+# plot
+plt.figure(figsize=(10, 5))
+
+plt.subplot(1, 2, 1)
+plt.imshow(gray_image, cmap='gray')
+plt.title('Original Image')
+
+plt.subplot(1, 2, 2)
+plt.imshow(contrast_enhanced, cmap='gray')
+plt.title('Contrast Stretched Image')
+
+plt.show()
+
+# Cellpose with transformed image
+model = models.Cellpose(gpu=True, model_type='cyto')
+masks, flows, styles, diams = model.eval(contrast_enhanced, diameter=None, channels=[0, 0])
+
+fig = plt.figure(figsize=(12, 5))
+plot.show_segmentation(fig, contrast_enhanced, masks, flows[0], channels=[0, 0])
+plt.tight_layout()
+plt.show()
 
 ################ GRAVEYARD ################
 import numpy as np
@@ -647,8 +714,11 @@ def get_top_values(values, n=10):
     return top_values
 
 ####
+
+INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\svs_files'
+
 images = []
-# tiled_images = []
+tiled_images = []
 slide_images = []
 masks = []
 regionprops_controls = []
@@ -662,6 +732,7 @@ for filename in os.listdir(INPUT_PATH):
 
     # Load image
     slide_image = SlideImage.from_file_path(FILE_PATH)
+    slide_images.append(slide_image)
 
     # Convert image to numpy array
     max_slide = max(slide_image.size)
@@ -674,11 +745,11 @@ for filename in os.listdir(INPUT_PATH):
     mask = generate_mask(image)
     masks.append(mask)
 
-    # # Tile image
-    # TARGET_MPP = 100  # microns per pixel
-    # TILE_SIZE = (10, 10)  # does not cause bg detection problem
-    # tiled_image = tile_image(FILE_PATH, TARGET_MPP, TILE_SIZE, mask)
-    # tiled_images.append(tiled_image)  # remove later
+    # Tile image
+    TARGET_MPP = 100  # microns per pixel
+    TILE_SIZE = (10, 10)  # does not cause bg detection problem
+    tiled_image = tile_image(FILE_PATH, TARGET_MPP, TILE_SIZE, mask)
+    tiled_images.append(tiled_image)  # remove later
 
     # Detect controls by round object detection (regionprops)
     round_objects = extract_round_objects_improved(mask, circularity_threshold=0.01)
