@@ -1122,7 +1122,7 @@ set.seed(220120241)
 
 ```{r}
 # "T_PTNMT_3bin", "ER.cat.final", "PR.cat.final", "fustat.binary"
-variables_to_stratify <- c("Grade", "T_PTNMT", "death.event") 
+variables_to_stratify <- c("Grade", "T_PTNMT", "rfs.event") 
 #ignore_na <- c("Grade", "T_PTNMT", "TMA_NUMBER_ER_IHC_ER_E2_C2")
 
 paradigm %>%
@@ -1305,7 +1305,7 @@ sample_from_bin_proportional <- function(data, binned_vars, size, variables_to_s
 ```
 
 ```{r}
-variables_to_stratify <- c("Grade", "death.event") # "T_PTNMT", "rfs.event"
+variables_to_stratify <- c("Grade", "rfs.event") # "T_PTNMT", "death.event"
 random_bin_sample_proportional <- sample_from_bin_proportional(paradigm, binned_vars = "ER_10bin", size = 10, variables_to_stratify)
 ```
 
