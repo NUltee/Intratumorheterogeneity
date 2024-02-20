@@ -7,10 +7,10 @@ if hasattr(os, 'add_dll_directory'):
     # Python >= 3.8 on Windows
     with os.add_dll_directory(openslide_path):
         import dlup
-
 from dlup.data.dataset import TiledWsiDataset
 from dlup.experimental_backends import openslide_backend
 from dlup import SlideImage
+from openslide import OpenSlide
 from PIL import Image, ImageDraw
 import matplotlib.pyplot as plt
 import numpy as np
@@ -27,49 +27,119 @@ from skimage.exposure import equalize_adapthist
 import warnings
 from cv2 import findContours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE, boundingRect
 
-token = ('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJOYW1lIjoiSEtTX1NhcmFfMjMxMjA0XyBJUkJtMTlfMTg1IiwiSUQiOiI1MzkzIiwiVmVy'
-         'c2lvbiI6IjEuMCIsIkNhbkNyZWF0ZVVwbG9hZEZvbGRlcnMiOiJGYWxzZSIsIkNhblVwbG9hZCI6IkZhbHNlIiwiQ2FuRG93bmxvYWRTbGlkZ'
-         'XMiOiJUcnVlIiwiQ2FuRGVsZXRlU2xpZGVzIjoiRmFsc2UiLCJDYW5VcGxvYWRPbmx5SW5Gb2xkZXJzIjoiIiwiQ2FuUmVhZE9ubHlTdHVkaW'
-         'VzIjoiSVJCbTE5XzE4NV9FUjtJUkJtMTlfMTg1X0hFX3RyaXBsZV9uZWc7SVJCbTE5XzE4NV9IRTtJUkJtMTlfMTg1X0hFUjI7SVJCbTE5XzE'
-         '4NV9LaV82NztJUkJtMTlfMTg1X1BSOyIsIkNhbk1vZGlmeU9ubHlTdHVkaWVzIjoiIiwiQ2FuR2V0Q29uZmlnIjoiRmFsc2UiLCJDYW5HZXRQ'
-         'aXhlbHMiOiJUcnVlIiwiQ2FuSGFuZGxlRG9tYWlucyI6IkZhbHNlIiwiQ2FuSGFuZGxlUGF0aHMiOiJGYWxzZSIsIkNhblVwbG9hZFNjb3Jlc'
-         'yI6IlRydWUiLCJDYW5DcmVhdGVTdHVkaWVzIjoiRmFsc2UiLCJDYW5SZWltcG9ydFN0dWRpZXMiOiJGYWxzZSIsIkNhbkRlbGV0ZU93bmVkU3'
-         'R1ZGllcyI6IkZhbHNlIiwiQ2FuR2V0U2NvcmVzIjoiRmFsc2UiLCJDYW5HZXRBbnlTY29yZXMiOiJUcnVlIiwiQ2FuSGFuZGxlU3R1ZGVudEF'
-         'jY291bnRzIjoiRmFsc2UiLCJuYmYiOjE3MDE2ODQ5MzYsImV4cCI6MTczMzI2NjgwMCwiaWF0IjoxNzAxNjg0OTM2fQ.gnwDKsJBlqk1YYmwn'
-         'KZwyLCe_GGk24tzHlwfZDItb54#expires:2024-12-04T00:00:00')
-url = "https://slidescore.nki.nl/"
-studyid = 382
-
-client = slidescore.APIClient(url, token)
-client.get_studies()
-
-download_path = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER'
-download_res = r'R:\Groups\GroupLinn\Nigel\IRBm19_185_ER'
-
-# download files that have not been downloaded yet
-count = 0
-for f in client.get_images(studyid):
-    count = count + 1
-    image_name = f["name"]  # works?
-    pattern = re.compile(image_name + r'.(zip|svs)')
-    match_C = list(filter(pattern.match, os.listdir(download_path)))
-    match_R = list(filter(pattern.match, os.listdir(download_res)))
-    if match_C:  # if downloaded in C-drive, move to R drive
-        file_name = ''.join(match_C)
-        shutil.move(os.path.join(download_path, file_name), download_res)
-        print(count, ": ", image_name, "was previously downloaded in C-drive. Moved to R-drive.")
-    elif match_R:  # if in R-drive, skip
-        print(count, ": ", image_name, "was previously downloaded in R-drive.")
-    else:  # if not downloaded, do so
-        print(count, ": ", 'downloading ' + f["name"] + ' in R-drive...', end='', flush=True)
-        client.download_slide(studyid, f["id"], download_res)
-        print('done')
-print('DOWNLOADING DONE')
+# token = ('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJOYW1lIjoiSEtTX1NhcmFfMjMxMjA0XyBJUkJtMTlfMTg1IiwiSUQiOiI1MzkzIiwiVmVy'
+#          'c2lvbiI6IjEuMCIsIkNhbkNyZWF0ZVVwbG9hZEZvbGRlcnMiOiJGYWxzZSIsIkNhblVwbG9hZCI6IkZhbHNlIiwiQ2FuRG93bmxvYWRTbGlkZ'
+#          'XMiOiJUcnVlIiwiQ2FuRGVsZXRlU2xpZGVzIjoiRmFsc2UiLCJDYW5VcGxvYWRPbmx5SW5Gb2xkZXJzIjoiIiwiQ2FuUmVhZE9ubHlTdHVkaW'
+#          'VzIjoiSVJCbTE5XzE4NV9FUjtJUkJtMTlfMTg1X0hFX3RyaXBsZV9uZWc7SVJCbTE5XzE4NV9IRTtJUkJtMTlfMTg1X0hFUjI7SVJCbTE5XzE'
+#          '4NV9LaV82NztJUkJtMTlfMTg1X1BSOyIsIkNhbk1vZGlmeU9ubHlTdHVkaWVzIjoiIiwiQ2FuR2V0Q29uZmlnIjoiRmFsc2UiLCJDYW5HZXRQ'
+#          'aXhlbHMiOiJUcnVlIiwiQ2FuSGFuZGxlRG9tYWlucyI6IkZhbHNlIiwiQ2FuSGFuZGxlUGF0aHMiOiJGYWxzZSIsIkNhblVwbG9hZFNjb3Jlc'
+#          'yI6IlRydWUiLCJDYW5DcmVhdGVTdHVkaWVzIjoiRmFsc2UiLCJDYW5SZWltcG9ydFN0dWRpZXMiOiJGYWxzZSIsIkNhbkRlbGV0ZU93bmVkU3'
+#          'R1ZGllcyI6IkZhbHNlIiwiQ2FuR2V0U2NvcmVzIjoiRmFsc2UiLCJDYW5HZXRBbnlTY29yZXMiOiJUcnVlIiwiQ2FuSGFuZGxlU3R1ZGVudEF'
+#          'jY291bnRzIjoiRmFsc2UiLCJuYmYiOjE3MDE2ODQ5MzYsImV4cCI6MTczMzI2NjgwMCwiaWF0IjoxNzAxNjg0OTM2fQ.gnwDKsJBlqk1YYmwn'
+#          'KZwyLCe_GGk24tzHlwfZDItb54#expires:2024-12-04T00:00:00')
+# url = "https://slidescore.nki.nl/"
+# studyid = 382
+#
+# client = slidescore.APIClient(url, token)
+# client.get_studies()
+#
+# download_path = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER'
+# download_res = r'R:\Groups\GroupLinn\Nigel\IRBm19_185_ER'
+#
+# # download files that have not been downloaded yet
+# count = 0
+# for f in client.get_images(studyid):
+#     count = count + 1
+#     image_name = f["name"]  # works?
+#     pattern = re.compile(image_name + r'.(zip|svs)')
+#     match_C = list(filter(pattern.match, os.listdir(download_path)))
+#     match_R = list(filter(pattern.match, os.listdir(download_res)))
+#     if match_C:  # if downloaded in C-drive, move to R drive
+#         file_name = ''.join(match_C)
+#         shutil.move(os.path.join(download_path, file_name), download_res)
+#         print(count, ": ", image_name, "was previously downloaded in C-drive. Moved to R-drive.")
+#     elif match_R:  # if in R-drive, skip
+#         print(count, ": ", image_name, "was previously downloaded in R-drive.")
+#     else:  # if not downloaded, do so
+#         print(count, ": ", 'downloading ' + f["name"] + ' in R-drive...', end='', flush=True)
+#         client.download_slide(studyid, f["id"], download_res)
+#         print('done')
+# print('DOWNLOADING DONE')
 
 ################
 ### Pipeline ###
 ################
-def remove_small_objects(original_mask, metric='mean', min_area_threshold=None, std_scale=None, range_scale=None):
+def get_slide_bounds(slide):
+    """
+    Add docstring
+    """
+    bound_width = int(slide.properties.get('openslide.bounds-width'))
+    bound_height = int(slide.properties.get('openslide.bounds-height'))
+    bound_x = int(slide.properties.get('openslide.bounds-x'))
+    bound_y = int(slide.properties.get('openslide.bounds-y'))
+
+    return bound_width, bound_height, bound_x, bound_y
+
+def crop_to_slide_bounds(slide, level_from, level_to):
+    """
+    Scale slide bounds from one level to another.
+
+    Parameters:
+    - slide: Openslide object
+    - level_from (int): Source level
+    - level_to (int): Target level
+
+    Returns:
+    - image_at_level (numpy array): Pixel values within slide bounds at specific image pyramidal level.
+    """
+    downsample_factor = slide.level_downsamples[level_from] / slide.level_downsamples[level_to]
+
+    width, height, x, y = get_slide_bounds(slide)
+
+    scaled_height = int(height * downsample_factor)
+    scaled_width = int(width * downsample_factor)
+    # scaled_x = int(x * downsample_factor)  # apparently you can just take the location as in level 0
+    # scaled_y = int(y * downsample_factor)
+
+    # Read the image at the chosen level
+    image_at_level = np.array(slide.read_region((x, y), level_to, (scaled_width, scaled_height)))[:, :, :3]
+
+    return image_at_level
+
+def get_foreground_contour(image):
+    """
+    Retrieve the contour width and height of the full foreground (rectangular).
+
+    Parameters:
+    - binary_image (np array): binary image.
+
+    Returns:
+    - contour_width (int): width of rectangle contour around foreground.
+    - contour_height (int): height of rectangle contour around foreground.
+    """
+    # Find contours in the binary image
+    image = image.astype(np.uint8)
+    contours, _ = findContours(image, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE)
+    # RETR_EXTERNAL -> retrieves only the external contours of the shapes (ignores shapes within other shapes).
+    # CHAIN_APPROX_SIMPLE -> compresses horizontal, diagonal, and vertical segments and leaves only their end points.
+
+    # Calculate the bounding box coordinates for the entire foreground
+    top_left_x, top_left_y, contour_width, contour_height = boundingRect(np.vstack(contours))
+
+    return (top_left_x, top_left_y), (contour_width, contour_height)
+
+def measure_properties(binary_image):
+    """
+    Add docstring
+    """
+    # Measure properties of all gaps
+    labeled_mask, num_labels = measure.label(binary_image, connectivity=2, return_num=True)  # label objects
+    regions = measure.regionprops(labeled_mask, intensity_image=binary_image)  # measure properties
+
+    return regions
+
+def remove_small_objects(original_mask, metric='mean', min_area_threshold=None, std_scale=None, range_scale=None,
+                         percentage_max_area=None):
     """
     Remove small objects from a binary mask.
 
@@ -89,7 +159,8 @@ def remove_small_objects(original_mask, metric='mean', min_area_threshold=None, 
     # Measure properties of labeled regions
     regions = measure.regionprops(labeled_mask)
 
-    # If is not specified, threshold = mean + std
+    # If not specified, threshold = mean + std
+    # TO DO: determine threshold in other function.
     areas = [region.area for region in regions]
     if metric == 'manual':
         min_area_threshold = min_area_threshold
@@ -98,22 +169,29 @@ def remove_small_objects(original_mask, metric='mean', min_area_threshold=None, 
             min_area_threshold = np.median(areas) - 0.1 * np.median(areas)
         elif range_scale != None:
             min_area_threshold = np.median(areas) - range_scale * np.median(areas)
+    elif metric == 'maximum':
+        if percentage_max_area == None:
+            min_area_threshold = 0.01 * np.max(areas)
+        elif percentage_max_area != None:
+            min_area_threshold = percentage_max_area/100 * np.max(areas)
     else:
         if std_scale == None:
             min_area_threshold = np.mean(areas) + np.std(areas)
         elif std_scale != None:
             min_area_threshold = np.mean(areas) + std_scale * np.std(areas)
 
-    print("Small object filter: ", sum(1 for area in areas if area > min_area_threshold),
-          "objects retained.")
-
     # Create a new mask and add objects to be retained
-    new_mask = np.zeros_like(original_mask, dtype=np.bool_)
-    for region in regions:
-        if region.area >= min_area_threshold:
-            new_mask[labeled_mask == region.label] = True
-
-    return new_mask
+    if len(areas) > 3:  # ensure more than 3 objects >threshold to filter
+        print("Small object filter: ", sum(1 for area in areas if area > min_area_threshold),
+              "objects retained.")
+        new_mask = np.zeros_like(original_mask, dtype=np.bool_)
+        for region in regions:
+            if region.area >= min_area_threshold:
+                new_mask[labeled_mask == region.label] = True
+        return new_mask
+    else:
+        print("<3 Objects above threshold, original mask returned.")
+        return original_mask
 
 def generate_mask(image, kernel_dilation=10, kernel_erosion=3):
     """
@@ -144,21 +222,354 @@ def generate_mask(image, kernel_dilation=10, kernel_erosion=3):
     # fig, ax = try_all_threshold(dilated_min_eroded_img, figsize=(10, 8), verbose=False)
     # plt.show()
 
-    # # Mask does not work as well for mrxs, consider the following:
-    # # 1) Enhance contrast
-    # normalized_image = gray_image / gray_image.max()
-    # contrast_enhanced = equalize_adapthist(normalized_image)  # adaptive histogram equalization
-    # # 2) ?Use OTSU instead of mean? (hypothesis is that OTSU is fine for the svs files, but enhance is needed for mrxs
-    # threshold = threshold_otsu(contrast_enhanced)  # set threshold to segment (yes/no)
-    # mask = contrast_enhanced <= threshold  # dark pixels==False, bright pixels==True
-    # Result --> probably too inconsistent for svs files. Rather mask that detect too much than too little.
-
-    # # Thresholding to create a binary mask
+    # Thresholding to create a binary mask
     threshold = threshold_mean(dilated_min_eroded_img)  # set threshold to segment (yes/no)
     mask = dilated_min_eroded_img >= threshold  # dark pixels==False, bright pixels==True
 
     # Remove small objects from the binary mask
-    mask = remove_small_objects(mask, std_scale=0.5)
+    mask = remove_small_objects(mask, metric='maximum', percentage_max_area=2)
+
+    return mask
+
+def to_landscape(image):
+    """
+    Rotate binary image to landscape if orientation is portrait.
+
+    Parameters:
+    - image (np array): image.
+
+    Returns:
+    - landscape (np array): rotated binary image if foreground is not already in landscape orientation.
+    - binary_image (np array): original binary image if foreground is already in landscape orientation.
+    """
+    # TO DO: rotate original image as well
+    image = image.astype(np.uint8)
+    _, dimensions = get_foreground_contour(image)
+    width, height = dimensions
+    if height > width:
+        landscape = np.rot90(image)
+        return landscape
+    elif width >= height:
+        return image
+
+def controls_to_portrait(image, controls):
+    """
+    Rotate binary image to portrait if orientation is landscape.
+
+    Parameters:
+    - image (np array): image.
+
+    Returns:
+    - landscape (np array): rotated binary image if foreground is not already in landscape orientation.
+    - binary_image (np array): original binary image if foreground is already in landscape orientation.
+    """
+    # TO DO: rotate original image as well
+    image = image.astype(np.uint8)
+    _, dimensions = get_foreground_contour(image)
+    width, height = dimensions
+    if height > width:
+        return controls
+    elif width >= height:
+        portrait = np.rot90(controls, k=3)  # rotate back to original position
+        return portrait
+
+def crop_to_contour(mask):
+    """
+    Add docstring
+    mask: binary mask
+    """
+    # Find location and dimensions of tissue to crop to
+    location, dimensions = get_foreground_contour(mask)
+    top_left_x, top_left_y = location
+    width, height = dimensions
+    mask = mask[top_left_y:top_left_y + height, top_left_x:top_left_x + width]
+
+    return mask
+
+def find_gaps_horizontally(mask, threshold=None):
+    """
+    Add docstring
+    """
+    # Turn all values in column to 1 if there are at least as many 1's equal or above the threshold
+    if threshold == None:
+        threshold = 5
+    columns_with_ones = np.sum(mask, axis=0) >= threshold
+    temp_mask = np.zeros_like(mask)
+    temp_mask[:, columns_with_ones] = 1
+    gaps = ~temp_mask  # invert to find gaps
+
+    return gaps
+
+def find_gaps_vertically(mask, threshold=None):
+    """
+    Add docstring
+    """
+    # Turn all values in column to 1 if there are at least as many 1's equal or above the threshold
+    if threshold == None:
+        threshold = 5
+    rows_with_ones = np.sum(mask, axis=1) >= threshold
+    temp_mask = np.zeros_like(mask)
+    temp_mask[rows_with_ones, :] = 1
+    gaps = ~temp_mask  # invert to find gaps
+
+    return gaps
+
+def find_largest_area(regions):
+    """
+    Add docstring
+    """
+    # Iterate over regions until the region with the largest area is found
+    largest_area = 0
+    largest_area_region = None
+    if not regions:
+        return largest_area, largest_area_region
+    else:
+        max_intensity_all_regions = max([region.intensity_max for region in regions])
+        for region in regions:
+            if int(region.intensity_max) == int(max_intensity_all_regions) and region.area > largest_area:
+                largest_area = region.area
+                largest_area_region = region
+        return largest_area, largest_area_region
+
+def find_largest_gap(mask):
+    """
+    Add docstring
+    gaps (numpy array): binary image where background columns are set to 1.
+    """
+    # Find gaps
+    horizontal_gaps = find_gaps_horizontally(mask)
+    vertical_gaps = find_gaps_vertically(mask)
+
+    regions_horizontal_gaps = measure_properties(horizontal_gaps)
+    regions_vertical_gaps = measure_properties(vertical_gaps)
+
+    # Determine in which orientation the largest gap is
+    largest_area_horizontal, largest_area_region_horizontal = find_largest_area(regions_horizontal_gaps)
+    largest_area_vertical, largest_area_region_vertical = find_largest_area(regions_vertical_gaps)
+
+    if largest_area_vertical > largest_area_horizontal:
+        gap_orientation = 'vertical'
+        largest_gap = int(largest_area_region_vertical.centroid[0])
+        return largest_gap, gap_orientation
+    elif largest_area_horizontal > largest_area_vertical:
+        gap_orientation = 'horizontal'
+        largest_gap = int(largest_area_region_horizontal.centroid[1])
+        return largest_gap, gap_orientation
+    else:
+        # Warn if mean circularities are equal return original mask
+        raise ValueError("No gaps found.")
+
+def find_dividing_line(mask):
+    """
+    Add docstring
+    mask: binary mask
+    """
+    mask = crop_to_contour(mask)  # crop to contour tissue
+    largest_gap, orientation_diving_line = find_largest_gap(mask)  # find largest gap in landscape and portrait orientation
+
+    # Check if largest region is found.
+    if largest_gap != 0:
+        dividing_line = largest_gap
+    else:
+        # If no gap found, use middle
+        dividing_line = mask.shape[1] // 2
+        orientation_diving_line = 'horizontal'
+
+    return dividing_line, orientation_diving_line
+
+def retrieve_objects_count_per_side(mask, regions):
+    """
+    Retrieve the count of objects on the left and right side of the slide.
+
+    Parameters:
+    - regions (list): List of region properties.
+    - image_width (int): Width of the image.
+
+    Returns:
+    - tuple: A tuple containing two integers representing the count of objects on the left and right sides.
+    """
+    left_objects_count = 0
+    right_objects_count = 0
+    dividing_line, orientation_dividing_line = find_dividing_line(mask)
+    dimension = 0 if orientation_dividing_line == 'vertical' else 1
+
+    for region in regions:
+        # Classify based on position
+        if region.centroid[dimension] < dividing_line:
+            left_objects_count += 1
+        else:
+            right_objects_count += 1
+
+    return left_objects_count, right_objects_count
+
+def retrieve_circularities_per_side(mask, regions):
+    """
+    Retrieve circularity on left and right side of slide.
+
+    Parameters:
+    - regions (list): List of region properties.
+    - image_width (int): Width of the image.
+
+    Returns:
+    - tuple: A tuple containing two lists of circularities for left and right objects.
+    """
+    left_circularities = []
+    right_circularities = []
+    dividing_line, orientation_dividing_line = find_dividing_line(mask)
+    dimension = 0 if orientation_dividing_line == 'vertical' else 1
+
+    for region in regions:
+        # Calculate circularity
+        circularity = 4 * np.pi * region.area / region.perimeter ** 2
+
+        # Classify based on position
+        if region.centroid[dimension] < dividing_line:
+            left_circularities.append(circularity)
+        else:
+            right_circularities.append(circularity)
+
+    return left_circularities, right_circularities
+
+def remove_controls(mask, orientation, dividing_line, side_to_keep):
+    """
+    Add docstring
+    side (character): 'left/top', 'right/bottom'
+    """
+    width = mask.shape[1]
+    height = mask.shape[0]
+    mask_without_controls = np.zeros_like(mask)
+    if orientation == 'vertical':
+        if side_to_keep == 'left/top':
+            mask_without_controls[0:dividing_line, 0:width] = mask[0:dividing_line, 0:width]
+        elif side_to_keep == 'right/bottom':
+            mask_without_controls[dividing_line:height, 0:width] = mask[dividing_line:height, 0:width]
+    if orientation == 'horizontal':
+        if side_to_keep == 'left/top':
+            mask_without_controls[0:height, 0:dividing_line] = mask[0:height, 0:dividing_line]
+        elif side_to_keep == 'right/bottom':
+            mask_without_controls[0:height, dividing_line:width] = mask[0:height, dividing_line:width]
+
+    return mask_without_controls
+
+def max_circularity_method(mask, regions):
+    """
+    Add docstring
+    """
+    # Determine whether controls are located left or right
+    left_circularities, right_circularities = retrieve_circularities_per_side(mask, regions)
+
+    # Decide which side to include based on mean circularity
+    max_circularity_left = max(left_circularities)
+    max_circularity_right = max(right_circularities)
+
+    if max_circularity_left > max_circularity_right:
+        # Include objects on the left side
+        side_to_keep = 'right/bottom'
+    elif max_circularity_left < max_circularity_right:
+        # Include objects on the right side
+        side_to_keep = 'left/top'
+    return side_to_keep
+
+def max_area_method(mask, regions):
+    """
+    Add doxstring
+    """
+    dividing_line, orientation_dividing_line = find_dividing_line(mask)
+    dimension = 0 if orientation_dividing_line == 'vertical' else 1
+
+    # Retrieve object area on each side
+    for region in regions:
+        if region.centroid[dimension] < dividing_line:
+            left_area = region.area
+        else:
+            right_area = region.area
+
+    # It is assumed the object with a higher area is the biopsy
+    if right_area > 1.5 * left_area:
+        side_to_keep = 'left/top'
+    elif left_area > 1.5 * right_area:
+        side_to_keep = 'right/bottom'
+    else:
+        side_to_keep = max_circularity_method(mask, regions)
+    return side_to_keep
+
+def counting_method(mask, objects_left, objects_right):
+    """
+    Add docstring -> assumes that there are 3-5 controls on the slide
+    """
+    # Decide which side to include using a range for the number of objects on each side
+    if (objects_left >= 3 and objects_left <= 5) and (objects_right < 3 or objects_right > 5):
+        # Include objects on the left side
+        side_to_keep = 'right/bottom'
+        return side_to_keep
+    elif (objects_right >= 3 and objects_right <= 5) and (objects_left < 3 or objects_left > 5):
+        # Include objects on the right side
+        side_to_keep = 'left/top'
+        return side_to_keep
+    else:
+        return False
+
+def median_circularity_method(mask, regions):
+    """
+    Add docstring
+    """
+    # Determine whether controls are located left or right
+    left_circularities, right_circularities = retrieve_circularities_per_side(mask, regions)
+
+    # Decide which side to include based on mean circularity
+    median_circularity_left = np.median(left_circularities)
+    median_circularity_right = np.median(right_circularities)
+
+    if median_circularity_left > median_circularity_right:
+        # Include objects on the left side
+        side_to_keep = 'right/bottom'
+    elif median_circularity_left < median_circularity_right:
+        # Include objects on the right side
+        side_to_keep = 'left/top'
+    return side_to_keep
+
+def extract_round_objects_improved(mask):
+    """
+    Extract round objects from a binary mask based on circularity.
+
+    Parameters:
+    - mask (ndarray): Binary mask indicating regions of interest.
+    - circularity_threshold (float): Threshold for circularity to filter round objects, default is 0.1.
+
+    Returns:
+    - tuple: A tuple containing the following elements:
+        - ndarray: Binary mask containing only the round objects.
+        - list: List of circularities for all labeled regions.
+        - list: List of circularities for included round objects.
+
+    Example:
+    >>> input_mask = np.array([[True, False, True], [False, True, False], [True, False, True]])
+    >>> result_objects, circularities_all, circularities_included = extract_round_objects(input_mask)
+    """
+    # Second small objects filter (permitted here because only controls are needed)
+    temp_mask = remove_small_objects(mask, metric='median', range_scale=0.2)
+
+    # Measure properties of labeled regions
+    regions = measure_properties(temp_mask)
+
+    # If >1 object on >=1 sides do left_right, elif 0 objects on 1 side return original mask, else do max circularity
+    objects_left, objects_right = retrieve_objects_count_per_side(temp_mask, regions)  # left == top, right == bottom
+    if objects_left == 0 or objects_right == 0:
+        warnings.warn("Zero objects detected on left/right side. Original mask will be returned", UserWarning)
+        return mask
+    elif objects_left == 1 and objects_right == 1:
+        side_to_keep = max_area_method(temp_mask, regions)
+    else:
+        # If objects on one single side is within the default number of controls (3-5) then that side contains controls
+        side_to_keep = counting_method(temp_mask, objects_left, objects_right)
+        if side_to_keep != False:
+            pass
+        else:
+            side_to_keep = median_circularity_method(temp_mask, regions)
+
+    # Remove controls
+    dividing_line, orientation_dividing_line = find_dividing_line(temp_mask)
+    mask = remove_controls(mask, orientation_dividing_line, dividing_line, side_to_keep)
 
     return mask
 
@@ -197,229 +608,20 @@ def tile_image(file_path, TARGET_MPP, TILE_SIZE, mask):
         draw = ImageDraw.Draw(tiled_image)
         draw.rectangle(box, outline="red")
 
-
     return tiled_image
 
-def get_foreground_contour(image):
-    """
-    Retrieve the contour width and height of the full foreground (rectangular).
 
-    Parameters:
-    - binary_image (np array): binary image.
-
-    Returns:
-    - contour_width (int): width of rectangle contour around foreground.
-    - contour_height (int): height of rectangle contour around foreground.
-    """
-    # Find contours in the binary image
-    contours, _ = findContours(image, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE)
-    # RETR_EXTERNAL -> retrieves only the external contours of the shapes (ignores shapes within other shapes).
-    # CHAIN_APPROX_SIMPLE -> compresses horizontal, diagonal, and vertical segments and leaves only their end points.
-
-    # Calculate the bounding box coordinates for the entire foreground
-    _, _, contour_width, contour_height = boundingRect(np.vstack(contours))
-
-    return contour_width, contour_height
-
-def to_landscape(binary_image):
-    """
-    Rotate binary image to landscape if orientation is portrait.
-
-    Parameters:
-    - binary_image (np array): binary image.
-
-    Returns:
-    - landscape (np array): rotated binary image if foreground is not already in landscape orientation.
-    - binary_image (np array): original binary image if foreground is already in landscape orientation.
-    """
-    # TO DO: rotate original image as well
-    image = binary_image.astype(np.uint8)
-    width, height = get_foreground_contour(image)
-    if height > width:
-        landscape = np.rot90(image)
-        return landscape
-    elif width >= height:
-        return binary_image
-
-def controls_to_portrait(binary_image, controls):
-    """
-    Rotate binary image to portrait if orientation is landscape.
-
-    Parameters:
-    - binary_image (np array): binary image.
-
-    Returns:
-    - landscape (np array): rotated binary image if foreground is not already in landscape orientation.
-    - binary_image (np array): original binary image if foreground is already in landscape orientation.
-    """
-    # TO DO: rotate original image as well
-    image = binary_image.astype(np.uint8)
-    width, height = get_foreground_contour(image)
-    if height > width:
-        return controls
-    elif width >= height:
-        portrait = np.rot90(controls, k=3)  # rotate back to original position
-        return portrait
-
-def retrieve_objects_count_per_side(regions, image_width):
-    """
-    Retrieve the count of objects on the left and right side of the slide.
-
-    Parameters:
-    - regions (list): List of region properties.
-    - image_width (int): Width of the image.
-
-    Returns:
-    - tuple: A tuple containing two integers representing the count of objects on the left and right sides.
-    """
-    left_objects_count = 0
-    right_objects_count = 0
-    dividing_line = image_width // 2
-
-    for region in regions:
-        # Classify based on position
-        if region.centroid[1] < dividing_line:
-            left_objects_count += 1
-        else:
-            right_objects_count += 1
-
-    return left_objects_count, right_objects_count
-
-def retrieve_circularities_per_side(regions, image_width):
-    """
-    Retrieve circularity on left and right side of slide.
-
-    Parameters:
-    - regions (list): List of region properties.
-    - image_width (int): Width of the image.
-
-    Returns:
-    - tuple: A tuple containing two lists of circularities for left and right objects.
-    """
-    left_circularities = []
-    right_circularities = []
-    dividing_line = image_width // 2
-
-    for region in regions:
-        # Calculate circularity
-        circularity = 4 * np.pi * region.area / region.perimeter ** 2
-
-        # Classify based on position
-        if region.centroid[1] < dividing_line:
-            left_circularities.append(circularity)
-        else:
-            right_circularities.append(circularity)
-
-    return left_circularities, right_circularities
-
-def max_circularity_method(mask, regions):
-    """
-    Add docstring
-    """
-    # Determine whether controls are located left or right
-    width = mask.shape[1]
-    height = mask.shape[0]
-    left_circularities, right_circularities = retrieve_circularities_per_side(regions, image_width=width)
-
-    # Decide which side to include based on mean circularity
-    max_circularity_left = max(left_circularities)
-    max_circularity_right = max(right_circularities)
-
-    controls = np.zeros_like(mask)
-    if max_circularity_left > max_circularity_right:
-        # Include objects on the left side
-        controls[0:height, 0:width // 2] = mask[0:height, 0:width // 2]
-    elif max_circularity_left < max_circularity_right:
-        # Include objects on the right side
-        controls[0:height, width // 2:width] = mask[0:height, width // 2:width]
-    else:
-        # Warn if mean circularities are equal return original mask
-        warnings.warn("Mean circularities on both sides are equal. Consider verifying the result.", UserWarning)
-
-    return controls
-
-def median_circularity_method(mask, regions):
-    """
-    Add docstring
-    """
-    # Determine whether controls are located left or right
-    width = mask.shape[1]
-    height = mask.shape[0]
-    left_circularities, right_circularities = retrieve_circularities_per_side(regions, image_width=width)
-
-    # Decide which side to include based on mean circularity
-    median_circularity_left = np.median(left_circularities)
-    median_circularity_right = np.median(right_circularities)
-
-    controls = np.zeros_like(mask)
-    if median_circularity_left > median_circularity_right:
-        # Include objects on the left side
-        controls[0:height, 0:width // 2] = mask[0:height, 0:width // 2]
-    elif median_circularity_left < median_circularity_right:
-        # Include objects on the right side
-        controls[0:height, width // 2:width] = mask[0:height, width // 2:width]
-    else:
-        # Warn if mean circularities are equal return original mask
-        warnings.warn("Mean circularities on both sides are equal. Consider verifying the result.", UserWarning)
-
-    return controls
-
-def extract_round_objects_improved(mask,
-                                   circularity_threshold=0.05,
-                                   min_area_threshold=None,
-                                   std_scale=None):
-    """
-    Extract round objects from a binary mask based on circularity.
-
-    Parameters:
-    - mask (ndarray): Binary mask indicating regions of interest.
-    - circularity_threshold (float): Threshold for circularity to filter round objects, default is 0.1.
-
-    Returns:
-    - tuple: A tuple containing the following elements:
-        - ndarray: Binary mask containing only the round objects.
-        - list: List of circularities for all labeled regions.
-        - list: List of circularities for included round objects.
-
-    Example:
-    >>> input_mask = np.array([[True, False, True], [False, True, False], [True, False, True]])
-    >>> result_objects, circularities_all, circularities_included = extract_round_objects(input_mask, circularity_threshold=0.2)
-    """
-    # Second small objects filter (permitted here because only controls are needed)
-    temp_mask = remove_small_objects(mask, metric='median', range_scale=0.2)
-    temp_mask = to_landscape(temp_mask)  # if not already in landscape, rotate
-
-    # Label connected components in the binary mask
-    labeled_mask, num_labels = measure.label(temp_mask, connectivity=2, return_num=True)
-
-    # Measure properties of labeled regions
-    regions = measure.regionprops(labeled_mask, intensity_image=temp_mask)
-
-    # ?TO DO: detect controls only in bounding box foreground
-    width = mask.shape[1]
-    objects_left, objects_right = retrieve_objects_count_per_side(regions, width)
-    # if >1 object on >=1 sides do left_right, elif 0 objects on 1 side return original mask, else do max circularity
-    if objects_left == 0 or objects_right == 0:
-        warnings.warn("Zero objects detected on left/right side. Original mask will be returned", UserWarning)
-        return mask
-    elif objects_left == 1 or objects_right == 1:
-        controls = max_circularity_method(temp_mask, regions)
-        controls = controls_to_portrait(temp_mask, controls)
-        return controls
-    else:
-        controls = median_circularity_method(temp_mask, regions)
-        controls = controls_to_portrait(temp_mask, controls)
-        return controls
-
-INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\mrxs_files'
-import zipfile
+##################
+### MRXS files ###
+##################
+INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\mrxs_files2'
 
 ####
 images = []
-tiled_images = []
 slide_images = []
 masks = []
 regionprops_controls = []
+tiled_images = []
 # Iterate over each file in the folder
 for filename in os.listdir(INPUT_PATH):
     FILE_PATH = os.path.join(INPUT_PATH, filename, (filename + '.mrxs'))
@@ -428,31 +630,38 @@ for filename in os.listdir(INPUT_PATH):
     if os.path.isfile(FILE_PATH):
         print(FILE_PATH)
 
-    # Load image
-    slide_image = SlideImage.from_file_path(FILE_PATH)
+    # # Load image using dlup
+    # slide_image = SlideImage.from_file_path(FILE_PATH)
+    # slide_images.append(slide_image)
+    #
+    # # Convert image to numpy array
+    # max_slide = max(slide_image.size)
+    # size = max_slide * slide_image.mpp / 10  # Size is 10 mpp
+    # size = int(max([int(1 if int(size) == 0 else 2 ** (int(size) - 1).bit_length()), 512]))
+    # image = np.asarray(slide_image.get_thumbnail(size=(size, size)))
+    # images.append(image)  # remove later
+
+    # Load image using openslide
+    slide_image = OpenSlide(FILE_PATH)
     slide_images.append(slide_image)
 
-    # Convert image to numpy array
-    max_slide = max(slide_image.size)
-    size = max_slide * slide_image.mpp / 10  # Size is 10 mpp
-    size = int(max([int(1 if int(size) == 0 else 2 ** (int(size) - 1).bit_length()), 512]))
-    image = np.asarray(slide_image.get_thumbnail(size=(size, size)))
+    # Crop to slide bounds (at level 5)
+    image = crop_to_slide_bounds(slide_image, 0, 5)
     images.append(image)  # remove later
 
     # Generate mask
     mask = generate_mask(image)
     masks.append(mask)
 
+    # Detect controls by round object detection (regionprops)
+    round_objects = extract_round_objects_improved(mask)
+    regionprops_controls.append(round_objects)
+
     # # Tile image
     # TARGET_MPP = 100  # microns per pixel
     # TILE_SIZE = (10, 10)  # does not cause bg detection problem
     # tiled_image = tile_image(FILE_PATH, TARGET_MPP, TILE_SIZE, mask)
     # tiled_images.append(tiled_image)  # remove later
-    # # TO DO: fix tiling mrxs files
-
-    # Detect controls by round object detection (regionprops)
-    round_objects = extract_round_objects_improved(mask, circularity_threshold=0.01)
-    regionprops_controls.append(round_objects)
 
 # Plot original images
 num_rows = 4
@@ -463,18 +672,6 @@ for i in range(len(images)):
     col = i % num_cols
     axes[row, col].imshow(images[i], cmap='gray')
     axes[row, col].axis('off')  # Turn off axis labels
-plt.show()
-
-# Plot tiled images
-num_rows = 4
-num_cols = 2
-fig, axes = plt.subplots(num_rows, num_cols, figsize=(12, 6))
-for i in range(len(tiled_images)):
-    row = i // num_cols
-    col = i % num_cols
-    axes[row, col].imshow(tiled_images[i], cmap='gray')
-    axes[row, col].set_xticks([])  # Turn off x-axis ticks
-    axes[row, col].set_yticks([])  # Turn off y-axis ticks
 plt.show()
 
 # Plot masks
@@ -501,6 +698,109 @@ for i in range(len(regionprops_controls)):
     axes[row, col].set_yticks([])  # Turn off y-axis ticks
 plt.show()
 
+# Plot tiled images
+num_rows = 4
+num_cols = 2
+fig, axes = plt.subplots(num_rows, num_cols, figsize=(12, 6))
+for i in range(len(tiled_images)):
+    row = i // num_cols
+    col = i % num_cols
+    axes[row, col].imshow(tiled_images[i], cmap='gray')
+    axes[row, col].set_xticks([])  # Turn off x-axis ticks
+    axes[row, col].set_yticks([])  # Turn off y-axis ticks
+plt.show()
+
+#################
+### SVS files ###
+#################
+INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\svs_files'
+
+images = []
+tiled_images = []
+slide_images = []
+masks = []
+regionprops_controls = []
+# Iterate over each file in the folder
+for filename in os.listdir(INPUT_PATH):
+    FILE_PATH = os.path.join(INPUT_PATH, filename)
+
+    # Check if it's a regular file
+    if os.path.isfile(FILE_PATH):
+        print(FILE_PATH)
+
+    # Load image
+    slide_image = SlideImage.from_file_path(FILE_PATH)
+    slide_images.append(slide_image)
+
+    # Convert image to numpy array
+    max_slide = max(slide_image.size)
+    size = max_slide * slide_image.mpp / 10  # Size is 10 mpp
+    size = int(max([int(1 if int(size) == 0 else 2 ** (int(size) - 1).bit_length()), 512]))
+    image = np.asarray(slide_image.get_thumbnail(size=(size, size)))
+    images.append(image)  # remove later
+
+    # Generate mask
+    mask = generate_mask(image)
+    masks.append(mask)
+
+    # Detect controls by round object detection (regionprops)
+    round_objects = extract_round_objects_improved(mask)
+    regionprops_controls.append(round_objects)
+
+    # Use find_dividing_line method to subtract the whole control side of the slide from the mask.
+
+    # # Tile image
+    # TARGET_MPP = 100  # microns per pixel
+    # TILE_SIZE = (10, 10)  # does not cause bg detection problem
+    # tiled_image = tile_image(FILE_PATH, TARGET_MPP, TILE_SIZE, mask)
+    # tiled_images.append(tiled_image)  # remove later
+
+# Plot original images
+num_rows = 4
+num_cols = 2
+fig, axes = plt.subplots(num_rows, num_cols, figsize=(12, 6))
+for i in range(len(images)):
+    row = i // num_cols
+    col = i % num_cols
+    axes[row, col].imshow(images[i], cmap='gray')
+    axes[row, col].axis('off')  # Turn off axis labels
+plt.show()
+
+# Plot masks
+num_rows = 4
+num_cols = 2
+fig, axes = plt.subplots(num_rows, num_cols, figsize=(12, 6))
+for i in range(len(masks)):
+    row = i // num_cols
+    col = i % num_cols
+    axes[row, col].imshow(masks[i], cmap='gray')
+    axes[row, col].set_xticks([])  # Turn off x-axis ticks
+    axes[row, col].set_yticks([])  # Turn off y-axis ticks
+plt.show()
+
+# Plot control images --> circularity
+num_rows = 4
+num_cols = 2
+fig, axes = plt.subplots(num_rows, num_cols, figsize=(12, 6))
+for i in range(len(regionprops_controls)):
+    row = i // num_cols
+    col = i % num_cols
+    axes[row, col].imshow(regionprops_controls[i], cmap='gray')
+    axes[row, col].set_xticks([])  # Turn off x-axis ticks
+    axes[row, col].set_yticks([])  # Turn off y-axis ticks
+plt.show()
+
+# Plot tiled images
+num_rows = 4
+num_cols = 2
+fig, axes = plt.subplots(num_rows, num_cols, figsize=(12, 6))
+for i in range(len(tiled_images)):
+    row = i // num_cols
+    col = i % num_cols
+    axes[row, col].imshow(tiled_images[i], cmap='gray')
+    axes[row, col].set_xticks([])  # Turn off x-axis ticks
+    axes[row, col].set_yticks([])  # Turn off y-axis ticks
+plt.show()
 ########################################################################################################################
 ################################################## UNDER CONSTRUCTION ##################################################
 ########################################################################################################################
@@ -546,8 +846,10 @@ plt.show()
 
 ### Import slide at specific level
 import openslide
-INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\svs_files'
-filename = r'T18-02695 I1 ER.svs'
+# INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\svs_files'
+# filename = r'T18-02695 I1 ER.svs'
+INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\mrxs_files\T20-05125 I4 ER'
+filename = r'T20-05125 I4 ER.mrxs'
 slide = openslide.OpenSlide(os.path.join(INPUT_PATH, filename))
 
 # Get information about the levels
@@ -555,12 +857,12 @@ levels = slide.level_count
 print(f"Number of levels: {levels}")
 
 # Choose the level for analysis (e.g., level 1)
-chosen_level = 0
+chosen_level = 5
 
 # Read the image at the chosen level
-# image_at_level = np.array(slide.read_region((0, 0), chosen_level, slide.level_dimensions[chosen_level]))[:, :, :3]
-# plt.imshow(image_at_level)
-# plt.show()
+image_at_level = np.array(slide.read_region((0, 0), chosen_level, slide.level_dimensions[chosen_level]))[:, :, :3]
+plt.imshow(image_at_level)
+plt.show()
 
 # Specify the region of interest (ROI) coordinates
 roi_x, roi_y = 6000, 20000  # Example coordinates
@@ -680,77 +982,107 @@ plt.tight_layout()
 plt.show()
 
 ################ GRAVEYARD ################
-import numpy as np
-from scipy.stats import hmean
+differences_per_mask = []
 
-def weighted_harmonic_mean(values):
+for image in images:
+    # Convert RGB image to grayscale
+    image = image.copy()
+    gray_image = color.rgb2gray(image)
+
+    # Perform dilation and erosion operations
+    dilated_img = dilation(gray_image, square(10))
+    eroded_img = erosion(gray_image, square(3))
+    dilated_min_eroded_img = dilated_img - eroded_img
+
+    # find good filter for segmentation
+    # fig, ax = try_all_threshold(dilated_min_eroded_img, figsize=(10, 8), verbose=False)
+    # plt.show()
+
+    # Thresholding to create a binary mask
+    threshold = threshold_mean(dilated_min_eroded_img)  # set threshold to segment (yes/no)
+    mask = dilated_min_eroded_img >= threshold  # dark pixels==False, bright pixels==True
+
+    # # Remove small objects from the binary mask
+    # mask = remove_small_objects(mask, metric='maximum', percentage_max_area=0.02)
+    plt.imshow(mask, cmap='gray')
+    plt.show()
+
+    labeled_mask, num_labels = measure.label(mask, connectivity=2, return_num=True)
+
+    # Measure properties of labeled regions
+    regions = measure.regionprops(labeled_mask)
+
+    # Sort the areas
+    areas = [region.area for region in regions]
+    sorted_areas = sorted(areas)
+    # Calculate the differences between consecutive elements
+    differences = np.diff(sorted_areas)
+    differences_per_mask.append(differences)
+
+    plt.boxplot(differences)
+    plt.show()
+
+# Create a boxplot
+plt.boxplot(differences_per_mask)
+plt.xlabel('Mask Index')
+plt.ylabel('Difference in Areas')
+plt.title('Boxplot of Differences between Consecutive Areas for Each Mask')
+plt.show()
+
+### read_region
+FILE_PATH = r'C:\\Users\\n.ultee\\PycharmProjects\\ER_ITH_v1.0\\IRBm19_185_ER\\mrxs_files\\T20-05125 I4 ER\\T20-05125 I4 ER.mrxs'
+slide_image = SlideImage.from_file_path(FILE_PATH)
+
+location, size = slide_image.slide_bounds
+
+downsample_factor = 32  # level 0 to 5
+location = tuple(value // downsample_factor for value in location)
+
+image_at_level = np.array(slide_image.read_region((5195, 976), 5, (97130, 170030)))  # memory error
+
+def determine_orientation(mask):
     """
-    Calculate the weighted harmonic mean of a list of values.
-
-    Parameters:
-    - values (list): List of values.
-
-    Returns:
-    - weighted_harmonic_mean (float): Weighted harmonic mean.
+    Add docstring
     """
-    unique_values, frequencies = np.unique(values, return_counts=True)
-    weights = 1 / unique_values
-    weighted_harmonic_mean = hmean(unique_values, weights=frequencies)
+    width = mask.shape[1]
+    height = mask.shape[0]
+    if width > height:
+        original_orientation = 'landscape'
+        landscape = mask
+        portrait = np.rot90(mask)
+    else:
+        original_orientation = 'portrait'
+        landscape = np.rot90(mask)
+        portrait = mask
 
-    return weighted_harmonic_mean
+    return original_orientation, landscape, portrait
 
-def get_top_values(values, n=10):
+def find_largest_gap_in_both_dimensions(mask):
     """
-    Get the top n largest values from a list.
-
-    Parameters:
-    - values (list): List of values.
-    - n (int): Number of top values to retrieve (default is 10).
-
-    Returns:
-    - top_values (list): List of the top n largest values.
+    Add docstring
     """
-    top_values = np.sort(values)[-n:][::-1]
-    return top_values
+    # Determine original orientation
+    original_orientation, landscape, portrait = determine_orientation(mask)
 
-####
+    # Find the largest gap in both orientations
+    largest_area_horizontal, region_largest_gap_horizontal = find_largest_gap(landscape)
+    largest_area_vertical, region_largest_gap_vertical = find_largest_gap(portrait)
 
-INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\svs_files'
+    # Return centroid largest gap
+    if largest_area_horizontal > largest_area_vertical:
+        return int(region_largest_gap_horizontal.centroid[1])
+    else:
+        return int(region_largest_gap_vertical.centroid[0])
 
-images = []
-tiled_images = []
-slide_images = []
-masks = []
-regionprops_controls = []
-# Iterate over each file in the folder
-for filename in os.listdir(INPUT_PATH):
-    FILE_PATH = os.path.join(INPUT_PATH, filename)
+    # # Return centroid largest gap according to original orientation
+    # if original_orientation == 'landscape':
+    #     if largest_area_horizontal > largest_area_vertical:
+    #         return int(region_largest_gap_horizontal.centroid[1])
+    #     else:
+    #         return int(region_largest_gap_vertical.centroid[0])
+    # elif original_orientation == 'portrait':
+    #     if largest_area_horizontal > largest_area_vertical:
+    #         return int(region_largest_gap_horizontal.centroid[0])
+    #     else:
+    #         return int(region_largest_gap_vertical.centroid[1])
 
-    # Check if it's a regular file
-    if os.path.isfile(FILE_PATH):
-        print(FILE_PATH)
-
-    # Load image
-    slide_image = SlideImage.from_file_path(FILE_PATH)
-    slide_images.append(slide_image)
-
-    # Convert image to numpy array
-    max_slide = max(slide_image.size)
-    size = max_slide * slide_image.mpp / 10  # Size is 10 mpp
-    size = int(max([int(1 if int(size) == 0 else 2 ** (int(size) - 1).bit_length()), 512]))
-    image = np.asarray(slide_image.get_thumbnail(size=(size, size)))
-    images.append(image)  # remove later
-
-    # Generate mask
-    mask = generate_mask(image)
-    masks.append(mask)
-
-    # Tile image
-    TARGET_MPP = 100  # microns per pixel
-    TILE_SIZE = (10, 10)  # does not cause bg detection problem
-    tiled_image = tile_image(FILE_PATH, TARGET_MPP, TILE_SIZE, mask)
-    tiled_images.append(tiled_image)  # remove later
-
-    # Detect controls by round object detection (regionprops)
-    round_objects = extract_round_objects_improved(mask, circularity_threshold=0.01)
-    regionprops_controls.append(round_objects)
