@@ -430,7 +430,7 @@ def retrieve_circularities_per_side(mask, regions):
 
     return left_circularities, right_circularities
 
-def remove_controls(mask, orientation, dividing_line, side_to_keep):
+def remove_control_pixels(mask, orientation, dividing_line, side_to_keep):
     """
     Add docstring
     side (character): 'left/top', 'right/bottom'
@@ -498,16 +498,26 @@ def counting_method(mask, objects_left, objects_right):
     Add docstring -> assumes that there are 3-5 controls on the slide
     """
     # Decide which side to include using a range for the number of objects on each side
-    if (objects_left >= 3 and objects_left <= 5) and (objects_right < 3 or objects_right > 5):
+    if (objects_left >= 3 and objects_left <= 5) and (objects_right == 1):
         # Include objects on the left side
         side_to_keep = 'right/bottom'
         return side_to_keep
-    elif (objects_right >= 3 and objects_right <= 5) and (objects_left < 3 or objects_left > 5):
+    elif (objects_right >= 3 and objects_right <= 5) and (objects_left == 1):
         # Include objects on the right side
         side_to_keep = 'left/top'
         return side_to_keep
     else:
         return False
+    # if (objects_left >= 3 and objects_left <= 5) and (objects_right < 3 or objects_right > 5):
+    #     # Include objects on the left side
+    #     side_to_keep = 'right/bottom'
+    #     return side_to_keep
+    # elif (objects_right >= 3 and objects_right <= 5) and (objects_left < 3 or objects_left > 5):
+    #     # Include objects on the right side
+    #     side_to_keep = 'left/top'
+    #     return side_to_keep
+    # else:
+    #     return False
 
 def median_circularity_method(mask, regions):
     """
@@ -528,7 +538,35 @@ def median_circularity_method(mask, regions):
         side_to_keep = 'left/top'
     return side_to_keep
 
-def extract_round_objects_improved(mask):
+def remove_controls_per_method(mask, temp_mask=None):
+    """
+    Add docstring
+    """
+    if temp_mask is None:
+        temp_mask = mask
+
+    # Measure properties of labeled regions
+    regions = measure_properties(temp_mask)
+
+    # If second small objects filter is too stringent, then do not filter
+    objects_left, objects_right = retrieve_objects_count_per_side(temp_mask, regions)  # left == top, right == bottom
+    if objects_left == 1 and objects_right == 1:
+        side_to_keep = max_area_method(temp_mask, regions)
+    else:
+        # If objects on one single side is within the default number of controls (3-5) then that side contains controls
+        side_to_keep = counting_method(temp_mask, objects_left, objects_right)
+        if side_to_keep != False:
+            pass
+        else:
+            side_to_keep = median_circularity_method(temp_mask, regions)
+
+    # Remove controls
+    dividing_line, orientation_dividing_line = find_dividing_line(temp_mask)
+    mask = remove_control_pixels(mask, orientation_dividing_line, dividing_line, side_to_keep)
+
+    return mask
+
+def remove_controls(mask):
     """
     Extract round objects from a binary mask based on circularity.
 
@@ -547,31 +585,20 @@ def extract_round_objects_improved(mask):
     >>> result_objects, circularities_all, circularities_included = extract_round_objects(input_mask)
     """
     # Second small objects filter (permitted here because only controls are needed)
-    temp_mask = remove_small_objects(mask, metric='median', range_scale=0.2)
+    temp_mask = remove_small_objects(mask, metric='median', range_scale=0.08)
 
     # Measure properties of labeled regions
     regions = measure_properties(temp_mask)
 
-    # If >1 object on >=1 sides do left_right, elif 0 objects on 1 side return original mask, else do max circularity
+    # If second small objects filter is too stringent, then do not filter
     objects_left, objects_right = retrieve_objects_count_per_side(temp_mask, regions)  # left == top, right == bottom
     if objects_left == 0 or objects_right == 0:
-        warnings.warn("Zero objects detected on left/right side. Original mask will be returned", UserWarning)
+        warnings.warn("Zero objects detected on left/right side. Original mask will be used to remove controls", UserWarning)
+        mask = remove_controls_per_method(mask=mask, temp_mask=None)
         return mask
-    elif objects_left == 1 and objects_right == 1:
-        side_to_keep = max_area_method(temp_mask, regions)
     else:
-        # If objects on one single side is within the default number of controls (3-5) then that side contains controls
-        side_to_keep = counting_method(temp_mask, objects_left, objects_right)
-        if side_to_keep != False:
-            pass
-        else:
-            side_to_keep = median_circularity_method(temp_mask, regions)
-
-    # Remove controls
-    dividing_line, orientation_dividing_line = find_dividing_line(temp_mask)
-    mask = remove_controls(mask, orientation_dividing_line, dividing_line, side_to_keep)
-
-    return mask
+        mask = remove_controls_per_method(mask=mask, temp_mask=temp_mask)
+        return mask
 
 def tile_image(file_path, TARGET_MPP, TILE_SIZE, mask):
     """
@@ -654,7 +681,7 @@ for filename in os.listdir(INPUT_PATH):
     masks.append(mask)
 
     # Detect controls by round object detection (regionprops)
-    round_objects = extract_round_objects_improved(mask)
+    round_objects = remove_controls(mask)
     regionprops_controls.append(round_objects)
 
     # # Tile image
@@ -744,10 +771,10 @@ for filename in os.listdir(INPUT_PATH):
     masks.append(mask)
 
     # Detect controls by round object detection (regionprops)
-    round_objects = extract_round_objects_improved(mask)
+    round_objects = remove_controls(mask)
     regionprops_controls.append(round_objects)
 
-    # Use find_dividing_line method to subtract the whole control side of the slide from the mask.
+    # TO DO: when no controls can be determined, do not automatically take right/bottom
 
     # # Tile image
     # TARGET_MPP = 100  # microns per pixel
@@ -801,6 +828,7 @@ for i in range(len(tiled_images)):
     axes[row, col].set_xticks([])  # Turn off x-axis ticks
     axes[row, col].set_yticks([])  # Turn off y-axis ticks
 plt.show()
+
 ########################################################################################################################
 ################################################## UNDER CONSTRUCTION ##################################################
 ########################################################################################################################
