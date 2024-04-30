@@ -1483,9 +1483,711 @@ ggplot(random_bin_sample_proportional, aes(x = ER_10bin, fill = Grade)) +
 split_strings <- str_split(random_bin_sample_proportional$TUMORSLIDE_ASSESSED_REVISION_E1_C1, "/") # Split the strings
 patient_block_ids <- data.frame( 
   `T nummer` = sapply(split_strings, `[`, 1),
-  `Bloknummer` = sapply(split_strings, `[`, 2)
+  `Bloknummer` = sapply(split_strings, `[`, 2),
+  `PALGA nummer` = random_bin_sample_proportional$palga_nr,
+  `TMA nummer` = random_bin_sample_proportional$TMA_NUMBER_ER_IHC_ER_E2_C2,
+  `TMA redone` = random_bin_sample_proportional$ER_TMA_WHOLE_SLIDE_REDONE_IHC_ER_E2_C2
 )
 
 # Print the resulting data frame
 write.xlsx(as.data.frame(patient_block_ids), file = fs::path(temp_output_dir, "PARADIGM_WSI_SAMPLE_Tnummer_Bloknummer.xlsx"))
+```
+
+```{r}
+# Set the directory where your Excel files are located
+excel_files_dir <- "R:/Groups/GroupLinn/Gwen/NKI/NBCP/YBCP/PALGA koppeling/PA-materiaal/TMA/TMA Grandmaster backup"
+
+# Get a list of all Excel files starting with "CF" in the specified directory
+file_list <- list.files(excel_files_dir, pattern = "^CF.*\\.xlsx$", full.names = TRUE)
+
+# Check if any files are found
+if (length(file_list) == 0) {
+  stop("No files found with the specified pattern.")
+}
+
+# Create an empty data frame to store the combined data
+combined_data <- data.frame()
+
+# Loop through each file and read data into the combined_data data frame
+for (file in file_list) {
+  df <- read_excel(file)
+  combined_data <- bind_rows(combined_data, df)
+}
+```
+
+```{r}
+no_tma <- data.frame(TUMORSLIDE_ASSESSED_REVISION_E1_C1 = character(),
+                     TMA_NUMBER_ER_IHC_ER_E2_C2 = character(),
+                     stringsAsFactors = FALSE)
+
+for (value in random_bin_sample_proportional$TUMORSLIDE_ASSESSED_REVISION_E1_C1) {
+  value_without_slash <- gsub("/", " ", value)
+  
+  if (value_without_slash %in% combined_data$`Donor Block ID`) {
+    next
+  } else {
+    tumorslide <- random_bin_sample_proportional[random_bin_sample_proportional$TUMORSLIDE_ASSESSED_REVISION_E1_C1 == value, "TMA_NUMBER_ER_IHC_ER_E2_C2"]
+    palganummer <- random_bin_sample_proportional[random_bin_sample_proportional$TUMORSLIDE_ASSESSED_REVISION_E1_C1 == value, "palga_nr"]
+    
+    # Append a new row to the data frame
+    no_tma <- rbind(no_tma, data.frame(TUMORSLIDE_ASSESSED_REVISION_E1_C1 = value,
+                                       TMA_NUMBER_ER_IHC_ER_E2_C2 = tumorslide,
+                                       palga_nr = palganummer,
+                                       stringsAsFactors = FALSE))
+  }
+}
+
+# View the resulting data frame
+print(no_tma)
+```
+
+#### Proportional random sampling ENRICHED 10-90%, PROPORTIONAL, IGNORE TMA==NA 
+```{r}
+set.seed(280220242)
+```
+
+```{r}
+sample_from_bin_proportional <- function(data, binned_vars, size, variables_to_stratify, exclude_na_vars) {
+  # Calculate strata frequencies
+  strata_freq <- data %>%
+    #filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+    group_by(across(all_of(variables_to_stratify))) %>%
+    summarise(freq = n())
+
+  # Add subgroups
+  data_with_subgroups <- data %>%
+    #filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+    group_by(across(all_of(variables_to_stratify))) %>%
+    mutate(subgroup = cur_group_id()) %>%
+    ungroup()
+
+  data_with_subgroups <- data_with_subgroups %>%
+    left_join(strata_freq, by = variables_to_stratify) %>%
+    mutate(
+      subgroup = as.numeric(as.character(subgroup)),
+      probability = strata_freq$freq[match(subgroup, names(table(subgroup)))] / sum(strata_freq$freq)
+    ) %>%
+    select(-freq)  # Optional: Remove the freq column
+  
+  # Check NAs in variables to stratify for each binned_vars
+  bins <- sort(na.omit(unique(data[[binned_vars]])))
+  for (bin_var in binned_vars){
+    for (strat_var in variables_to_stratify){
+      for (bin in bins){
+        bin_indices <- which(data_with_subgroups[[bin_var]] == bin)
+        non_na_data <- data_with_subgroups[bin_indices, strat_var]
+        nas_in_non_na_bins <- length(which(is.na(non_na_data)))
+        print(paste(strat_var, ": NAs in ", bin, " = ", nas_in_non_na_bins, sep=""))
+      }
+      na_bin_indices <- which(is.na(data_with_subgroups[ ,bin_var]))
+      na_bin <- data_with_subgroups[na_bin_indices, strat_var]
+      nas_na_bin <- length(which(is.na(na_bin)))
+      total_nas <- length(which(is.na(data_with_subgroups[ , strat_var])))
+      print(paste(nas_na_bin, "/", total_nas, " is NA in ", bin_var, " = NA", sep=""))
+    }
+  }
+  
+  # Sample from each stratum
+  sampled_data <- lapply(bins, function(bin) {
+    bin_indices <- which(data_with_subgroups[[binned_vars]] == bin)
+    stratum_data <- data_with_subgroups[bin_indices, ]
+
+    # Exclude rows where specified variables are NA
+    for (exclude_na_var in exclude_na_vars) {
+      stratum_data <- stratum_data[complete.cases(stratum_data[, exclude_na_var]), ]
+    }
+
+    # Sample indices only from non-NA rows
+    sample_indices <- sample(nrow(stratum_data), size = size, replace = FALSE, prob = stratum_data$probability)
+    return(stratum_data[sample_indices, , drop = FALSE])
+  })
+
+  # Combine sampled data from each bin
+  return(do.call(rbind, sampled_data))
+}
+```
+
+```{r}
+variables_to_stratify <- c("Grade", "death.event") # "T_PTNMT", "rfs.event"
+random_bin_sample_proportional <- sample_from_bin_proportional(paradigm, binned_vars = "ER_10bin", size = 10, variables_to_stratify, exclude_na_vars = "TMA_NUMBER_ER_IHC_ER_E2_C2")
+```
+
+```{r}
+
+paradigm$sampled <- ifelse(paradigm$palga_nr %in% random_bin_sample_proportional$palga_nr, "yes", "no")
+
+# https://www.rdocumentation.org/packages/tableone/versions/0.12.0/topics/CreateTableOne
+sampled_table <- CreateTableOne(data = paradigm, 
+                            vars = c("T_LEEFT", "T_PTNMT", "Grade", 
+                                     "Histology_3bin", "ER_10bin", "PR_5bin", 
+                                     "HER2.cat.rev.redone", "death.event", 
+                                     "rfs.event"
+                                     ),
+                            includeNA = FALSE,
+                            strata = "sampled"
+)
+
+save_sampled_table <- print(sampled_table, nonnormal = c("T_LEEFT", "VITFUP.final"), formatOptions = list(big.mark = ","))
+
+
+# write.xlsx(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.xlsx"))
+# write.csv(save_paradigm_table, file = fs::path(output_dir, "PARADIGM_patient_characteristics.csv"))
+temp_output_dir <- "C:/Users/n.ultee/PycharmProjects/ER_ITH_v1.0_python311_git/output_images/Clinical"
+write.csv(save_paradigm_table, file = fs::path(temp_output_dir, "PARADIGM_patient_characteristics_WSI_SAMPLE.csv"))
+```
+
+##### Retrieve block numbers
+
+```{r}
+# Retrieve T-numbers and Block numbers
+split_strings <- str_split(random_bin_sample_proportional$TUMORSLIDE_ASSESSED_REVISION_E1_C1, "/") # Split the strings
+patient_block_ids <- data.frame( 
+  `T nummer` = sapply(split_strings, `[`, 1),
+  `Bloknummer` = sapply(split_strings, `[`, 2),
+  `PALGA nummer` = random_bin_sample_proportional$palga_nr,
+  `TMA nummer` = random_bin_sample_proportional$TMA_NUMBER_ER_IHC_ER_E2_C2,
+  `TMA redone` = random_bin_sample_proportional$ER_TMA_WHOLE_SLIDE_REDONE_IHC_ER_E2_C2
+)
+
+# Print the resulting data frame
+write.xlsx(as.data.frame(patient_block_ids), file = fs::path(temp_output_dir, "PARADIGM_WSI_SAMPLE_Tnummer_Bloknummer.xlsx"))
+```
+
+```{r}
+# Set the directory where your Excel files are located
+excel_files_dir <- "R:/Groups/GroupLinn/Gwen/NKI/NBCP/YBCP/PALGA koppeling/PA-materiaal/TMA/TMA Grandmaster backup"
+
+# Get a list of all Excel files starting with "CF" in the specified directory
+file_list <- list.files(excel_files_dir, pattern = "^CF.*\\.xlsx$", full.names = TRUE)
+
+# Check if any files are found
+if (length(file_list) == 0) {
+  stop("No files found with the specified pattern.")
+}
+
+# Create an empty data frame to store the combined data
+combined_data <- data.frame()
+
+# Loop through each file and read data into the combined_data data frame
+for (file in file_list) {
+  df <- read_excel(file)
+  combined_data <- bind_rows(combined_data, df)
+}
+```
+
+```{r}
+tma <- data.frame(TUMORSLIDE_ASSESSED_REVISION_E1_C1 = character(),
+                     TMA_block = vector(),
+                     stringsAsFactors = FALSE) # check cores >=1 ER% present in YBCP directly
+no_tma <- data.frame(TUMORSLIDE_ASSESSED_REVISION_E1_C1 = character(),
+                     TMA_NUMBER_ER_IHC_ER_E2_C2 = character(),
+                     stringsAsFactors = FALSE) # find correct TMA nr and file in YBCP
+
+for (value in random_bin_sample_proportional$TUMORSLIDE_ASSESSED_REVISION_E1_C1) {
+  value_without_slash <- gsub("/", " ", value)
+  palganummer <- random_bin_sample_proportional[random_bin_sample_proportional$TUMORSLIDE_ASSESSED_REVISION_E1_C1 == value, "palga_nr"]
+  tumorslide <- random_bin_sample_proportional[random_bin_sample_proportional$TUMORSLIDE_ASSESSED_REVISION_E1_C1 == value, "TMA_NUMBER_ER_IHC_ER_E2_C2"]
+  
+  if (value_without_slash %in% combined_data$`Donor Block ID`) {
+    occurence = unique(combined_data[combined_data$`Donor Block ID` %in% value_without_slash, "TMA Block ID"])
+    tma <- rbind(tma, data.frame(TUMORSLIDE_ASSESSED_REVISION_E1_C1 = value_without_slash,
+                                 TMA_NUMBER_ER_IHC_ER_E2_C2 = tumorslide,
+                                 TMA_block = occurence,
+                                 palganummer = palganummer,
+                                 stringsAsFactors = FALSE)
+      
+    )
+  } else {
+    # Append a new row to the data frame
+    no_tma <- rbind(no_tma, data.frame(TUMORSLIDE_ASSESSED_REVISION_E1_C1 = value,
+                                       TMA_NUMBER_ER_IHC_ER_E2_C2 = tumorslide,
+                                       palga_nr = palganummer,
+                                       stringsAsFactors = FALSE))
+  }
+}
+
+# View the resulting data frame
+print(no_tma)
+```
+
+```{r}
+# Find tumorslide assessed with multiple blocks
+# Assuming your data frame is named df
+multiple_blocks <- tma %>%
+  group_by(TUMORSLIDE_ASSESSED_REVISION_E1_C1) %>%
+  filter(n() >= 2) %>%
+  ungroup()
+
+# View the resulting data frame
+print(multiple_blocks)
+```
+
+```{r}
+variables <- c("TUMORSLIDE_ASSESSED_REVISION_E1_C1",
+               "TMA_NUMBER_ER_IHC_ER_E2_C2",
+               "palga_nr",
+               "PERCENTAGE_OF_ER_POSITIVE_CELLS_CORE_1_IHC_ER_E2_C2", 
+               "PERCENTAGE_OF_ER_POSITIVE_CELLS_CORE_2_IHC_ER_E2_C2",
+               "PERCENTAGE_OF_ER_POSITIVE_CELLS_CORE_3_IHC_ER_E2_C2",
+               "PERCENTAGE_OF_ER_POSITIVE_CELLS_CORE_1_REDONE_IHC_ER_E2_C2",
+               "PERCENTAGE_OF_ER_POSITIVE_CELLS_CORE_2_REDONE_IHC_ER_E2_C2",
+               "PERCENTAGE_OF_ER_POSITIVE_CELLS_CORE_3_REDONE_IHC_ER_E2_C2",
+               "ER_TMA_WHOLE_SLIDE_IHC_ER_E2_C2",
+               "ER_TMA_WHOLE_SLIDE_REDONE_IHC_ER_E2_C2" 
+               )
+# Which are redone
+redone <- random_bin_sample_proportional[random_bin_sample_proportional$ER_REDONE_IHC_ER_E2_C2 == "Yes", variables]
+
+# Which redone with whole slide
+redone_whole_slide <- redone[redone$"ER_TMA_WHOLE_SLIDE_REDONE_IHC_ER_E2_C2" == "Whole slide", variables]
+```
+
+`r redone_whole_slide$palga_nr` do not have a tma present.
+
+```{r}
+# Find TMA in YBCP
+# paradigm_tma_fn = "CFMPB173_PARADIGM_20231117 PARADIGM Nigel ER whole slides.xlsx"
+# paradigm_tma <- openxlsx::read.xlsx(fs::path(input_dir, paradigm_tma_fn), sheet = 3)
+unknown_tma <- redone[redone$"ER_TMA_WHOLE_SLIDE_REDONE_IHC_ER_E2_C2" != "Whole slide", variables]
+ybcp_unknown_tma <- paradigm_tma[paradigm_tma$X1 %in% as.character(unknown_tma$palga_nr), ] # character
+
+no_tma_er_non_na <- data.frame(
+  TUMORSLIDE_ASSESSED = character(),
+  TMA_NUMBER_ER = numeric(),
+  palga_nr = character(),
+  ER1 = numeric(),
+  ER2 = numeric(),
+  ER3 = numeric(),
+  stringsAsFactors = FALSE
+)
+
+no_tma_er_not_non_na <- data.frame(
+  TUMORSLIDE_ASSESSED = character(),
+  TMA_NUMBER_ER = numeric(),
+  palga_nr = character(),
+  ER1 = numeric(),
+  ER2 = numeric(),
+  ER3 = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (subject in unique(ybcp_unknown_tma$X1)) {
+  instances <- ybcp_unknown_tma[ybcp_unknown_tma$X1 %in% subject, ]
+  
+  if (any(!is.na(instances[, c("ER1", "ER2", "ER3")]))) {
+    no_tma_er_non_na <- rbind(no_tma_er_non_na, instances[, c("X3", "TMA", "X1", "ER1", "ER2", "ER3")])
+  } else {
+    no_tma_er_not_non_na <- rbind(no_tma_er_not_non_na, instances[, c("X3", "TMA", "X1", "ER1", "ER2", "ER3")])
+  }
+}
+
+
+
+# Subset paradigm_tma using palga_nr (X1 in YBCP)
+# Check some examples
+```
+
+#### Proportional random sampling ENRICHED 10-90%, PROPORTIONAL, IGNORE TMA==NA, IGNORE REDONE==WHOLE SLIDE 
+```{r}
+set.seed(010320242)
+```
+
+```{r}
+sample_from_bin_proportional <- function(data, binned_vars, size, variables_to_stratify, exclude_na_vars, exclude_condition) {
+  # Calculate strata frequencies
+  strata_freq <- data %>%
+    #filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+    group_by(across(all_of(variables_to_stratify))) %>%
+    summarise(freq = n())
+
+  # Add subgroups
+  data_with_subgroups <- data %>%
+    #filter_at(vars(all_of(variables_to_stratify)), all_vars(!is.na(.))) %>%
+    group_by(across(all_of(variables_to_stratify))) %>%
+    mutate(subgroup = cur_group_id()) %>%
+    ungroup()
+
+  data_with_subgroups <- data_with_subgroups %>%
+    left_join(strata_freq, by = variables_to_stratify) %>%
+    mutate(
+      subgroup = as.numeric(as.character(subgroup)),
+      probability = strata_freq$freq[match(subgroup, names(table(subgroup)))] / sum(strata_freq$freq)
+    ) %>%
+    select(-freq)  # Optional: Remove the freq column
+  
+  # Check NAs in variables to stratify for each binned_vars
+  bins <- sort(na.omit(unique(data[[binned_vars]])))
+  for (bin_var in binned_vars){
+    for (strat_var in variables_to_stratify){
+      for (bin in bins){
+        bin_indices <- which(data_with_subgroups[[bin_var]] == bin)
+        non_na_data <- data_with_subgroups[bin_indices, strat_var]
+        nas_in_non_na_bins <- length(which(is.na(non_na_data)))
+        print(paste(strat_var, ": NAs in ", bin, " = ", nas_in_non_na_bins, sep=""))
+      }
+      na_bin_indices <- which(is.na(data_with_subgroups[ ,bin_var]))
+      na_bin <- data_with_subgroups[na_bin_indices, strat_var]
+      nas_na_bin <- length(which(is.na(na_bin)))
+      total_nas <- length(which(is.na(data_with_subgroups[ , strat_var])))
+      print(paste(nas_na_bin, "/", total_nas, " is NA in ", bin_var, " = NA", sep=""))
+    }
+  }
+  
+  # Sample from each stratum
+  sampled_data <- lapply(bins, function(bin) {
+    bin_indices <- which(data_with_subgroups[[binned_vars]] == bin)
+    stratum_data <- data_with_subgroups[bin_indices, ]
+
+    # Exclude rows where specified variables are NA
+    for (exclude_na_var in exclude_na_vars) {
+      stratum_data <- stratum_data[complete.cases(stratum_data[, exclude_na_var]), ]
+    }
+
+    # Exclude rows based on the condition
+    stratum_data <- with(stratum_data, stratum_data[!eval(exclude_condition), ])
+
+    # Sample indices only from non-NA and non-excluded rows
+    sample_indices <- sample(nrow(stratum_data), size = size, replace = FALSE, prob = stratum_data$probability)
+    return(stratum_data[sample_indices, , drop = FALSE])
+  })
+
+  # Combine sampled data from each bin
+  return(do.call(rbind, sampled_data))
+}
+```
+
+```{r}
+variables_to_stratify <- c("Grade", "death.event") # "T_PTNMT", "rfs.event"
+exclude_condition <- quote(ER_TMA_WHOLE_SLIDE_IHC_ER_E2_C2 == "Whole slide")
+random_bin_sample_proportional <- sample_from_bin_proportional(paradigm, binned_vars = "ER_10bin", 
+                                                               size = 10, 
+                                                               variables_to_stratify,
+                                                               exclude_na_vars = "TMA_NUMBER_ER_IHC_ER_E2_C2", 
+                                                               exclude_condition = exclude_condition
+                                                               )
+
+
+```
+
+```{r}
+
+paradigm$sampled <- ifelse(paradigm$palga_nr %in% random_bin_sample_proportional$palga_nr, "yes", "no")
+
+# https://www.rdocumentation.org/packages/tableone/versions/0.12.0/topics/CreateTableOne
+sampled_table <- CreateTableOne(data = paradigm, 
+                            vars = c("T_LEEFT", "T_PTNMT", "Grade", 
+                                     "Histology_3bin", "ER_10bin", "PR_5bin", 
+                                     "HER2.cat.rev.redone", "death.event", 
+                                     "rfs.event"
+                                     ),
+                            includeNA = FALSE,
+                            strata = "sampled"
+)
+
+save_sampled_table <- print(sampled_table, nonnormal = c("T_LEEFT", "VITFUP.final"), formatOptions = list(big.mark = ","))
+
+
+# write.xlsx(as.data.frame(save_paradigm_table), file = fs::path(output_dir, "PARADIGM_patient_characteristics.xlsx"))
+# write.csv(save_paradigm_table, file = fs::path(output_dir, "PARADIGM_patient_characteristics.csv"))
+temp_output_dir <- "C:/Users/n.ultee/PycharmProjects/ER_ITH_v1.0_python311_git/output_images/Clinical"
+write.csv(save_paradigm_table, file = fs::path(temp_output_dir, "PARADIGM_patient_characteristics_WSI_SAMPLE.csv"))
+```
+
+##### Retrieve block numbers
+
+```{r}
+# Retrieve T-numbers and Block numbers
+split_strings <- str_split(random_bin_sample_proportional$TUMORSLIDE_ASSESSED_REVISION_E1_C1, "/") # Split the strings
+patient_block_ids <- data.frame( 
+  `T nummer` = sapply(split_strings, `[`, 1),
+  `Bloknummer` = sapply(split_strings, `[`, 2),
+  `PALGA nummer` = random_bin_sample_proportional$palga_nr,
+  `TMA nummer` = random_bin_sample_proportional$TMA_NUMBER_ER_IHC_ER_E2_C2,
+  `TMA redone` = random_bin_sample_proportional$ER_TMA_WHOLE_SLIDE_REDONE_IHC_ER_E2_C2
+)
+
+# Print the resulting data frame
+write.xlsx(as.data.frame(patient_block_ids), file = fs::path(temp_output_dir, "PARADIGM_WSI_SAMPLE_Tnummer_Bloknummer.xlsx"))
+```
+
+```{r}
+# Set the directory where your Excel files are located
+excel_files_dir <- "R:/Groups/GroupLinn/Gwen/NKI/NBCP/YBCP/PALGA koppeling/PA-materiaal/TMA/TMA Grandmaster backup"
+
+# Get a list of all Excel files starting with "CF" in the specified directory
+file_list <- list.files(excel_files_dir, pattern = "^CF.*\\.xlsx$", full.names = TRUE)
+
+# Check if any files are found
+if (length(file_list) == 0) {
+  stop("No files found with the specified pattern.")
+}
+
+# Create an empty data frame to store the combined data
+combined_data <- data.frame()
+
+# Loop through each file and read data into the combined_data data frame
+for (file in file_list) {
+  df <- read_excel(file)
+  combined_data <- bind_rows(combined_data, df)
+}
+```
+
+```{r}
+tma <- data.frame(TUMORSLIDE_ASSESSED_REVISION_E1_C1 = character(),
+                     TMA_block = vector(),
+                     stringsAsFactors = FALSE) # check cores >=1 ER% present in YBCP directly
+no_tma <- data.frame(TUMORSLIDE_ASSESSED_REVISION_E1_C1 = character(),
+                     TMA_NUMBER_ER_IHC_ER_E2_C2 = character(),
+                     stringsAsFactors = FALSE) # find correct TMA nr and file in YBCP
+
+for (value in random_bin_sample_proportional$TUMORSLIDE_ASSESSED_REVISION_E1_C1) {
+  value_without_slash <- gsub("/", " ", value)
+  palganummer <- random_bin_sample_proportional[random_bin_sample_proportional$TUMORSLIDE_ASSESSED_REVISION_E1_C1 == value, "palga_nr"]
+  tumorslide <- random_bin_sample_proportional[random_bin_sample_proportional$TUMORSLIDE_ASSESSED_REVISION_E1_C1 == value, "TMA_NUMBER_ER_IHC_ER_E2_C2"]
+  
+  if (value_without_slash %in% combined_data$`Donor Block ID`) {
+    occurence = unique(combined_data[combined_data$`Donor Block ID` %in% value_without_slash, "TMA Block ID"])
+    tma <- rbind(tma, data.frame(TUMORSLIDE_ASSESSED_REVISION_E1_C1 = value_without_slash,
+                                 TMA_NUMBER_ER_IHC_ER_E2_C2 = tumorslide,
+                                 TMA_block = occurence,
+                                 palganummer = palganummer,
+                                 stringsAsFactors = FALSE)
+      
+    )
+  } else {
+    # Append a new row to the data frame
+    no_tma <- rbind(no_tma, data.frame(TUMORSLIDE_ASSESSED_REVISION_E1_C1 = value,
+                                       TMA_NUMBER_ER_IHC_ER_E2_C2 = tumorslide,
+                                       palga_nr = palganummer,
+                                       stringsAsFactors = FALSE))
+  }
+}
+
+# View the resulting data frame
+print(no_tma)
+```
+
+```{r}
+# Find tumorslide assessed with multiple blocks
+multiple_blocks <- tma %>%
+  group_by(TUMORSLIDE_ASSESSED_REVISION_E1_C1) %>%
+  filter(n() >= 2) %>%
+  ungroup()
+
+# View the resulting data frame
+print(multiple_blocks)
+```
+
+```{r}
+# Check if ER evaluation was feasible in any of the three cores
+all_ids <- paradigm_tma[paradigm_tma$X1 %in% as.character(tma$palga_nr), "X1"] # character
+unique_ids <- unique(all_ids)
+
+tma_er_non_na <- data.frame()
+tma_er_na <- data.frame()
+for (palga_nr in unique_ids) {
+  instances <- paradigm_tma[paradigm_tma$X1 %in% palga_nr, ]
+  
+  # Check if ER evaluation was feasible in any of the three cores
+  if (any(!is.na(instances[, c("ER1", "ER2", "ER3")]))) {
+    # numeric_values <- as.numeric(instances[, c("ER1", "ER2", "ER3")])
+    numeric_values <- apply(instances[, c("ER1", "ER2", "ER3")], 2, as.numeric)
+    if (!is.null(dim(numeric_values)) && nrow(numeric_values) > 0) {
+      select_non_na <- apply(!is.na(numeric_values), 1, any)
+      tma_er_non_na  <- rbind(tma_er_non_na, instances[select_non_na, c("X3", "TMA", "X1", "ER1", "ER2", "ER3")])
+    } else {
+      tma_er_non_na  <- rbind(tma_er_non_na, instances[, c("X3", "TMA", "X1", "ER1", "ER2", "ER3")])
+    }
+  } else {
+    tma_er_na <- rbind(tma_er_na, instances[, c("X3", "TMA", "X1", "ER1", "ER2", "ER3")])
+  }
+}
+```
+
+ 
+```{r}
+# Find TMA in YBCP
+# paradigm_tma_fn = "CFMPB173_PARADIGM_20231117 PARADIGM Nigel ER whole slides.xlsx"
+# paradigm_tma <- openxlsx::read.xlsx(fs::path(input_dir, paradigm_tma_fn), sheet = 3)
+ybcp_unknown_tma <- paradigm_tma[paradigm_tma$X1 %in% as.character(no_tma$palga_nr), ] # character
+duplicated <- ybcp_unknown_tma$X1[duplicated(ybcp_unknown_tma$X1)]
+
+no_tma_er_non_na <- data.frame(
+  TUMORSLIDE_ASSESSED = character(),
+  TMA_NUMBER_ER = numeric(),
+  palga_nr = character(),
+  ER1 = numeric(),
+  ER2 = numeric(),
+  ER3 = numeric(),
+  stringsAsFactors = FALSE
+)
+
+no_tma_er_not_non_na <- data.frame(
+  TUMORSLIDE_ASSESSED = character(),
+  TMA_NUMBER_ER = numeric(),
+  palga_nr = character(),
+  ER1 = numeric(),
+  ER2 = numeric(),
+  ER3 = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (subject in unique(ybcp_unknown_tma$X1)) {
+  instances <- ybcp_unknown_tma[ybcp_unknown_tma$X1 %in% subject, ]
+  
+  # Check if ER evaluation was feasible in any of the three cores
+  if (any(!is.na(instances[, c("ER1", "ER2", "ER3")]))) {
+    # numeric_values <- as.numeric(instances[, c("ER1", "ER2", "ER3")])
+    numeric_values <- apply(instances[, c("ER1", "ER2", "ER3")], 2, as.numeric)
+    if (!is.null(dim(numeric_values)) && nrow(numeric_values) > 0) {
+      select_non_na <- apply(!is.na(numeric_values), 1, any)
+      no_tma_er_non_na  <- rbind(no_tma_er_non_na, instances[select_non_na, c("X3", "TMA", "X1", "ER1", "ER2", "ER3")])
+    } else {
+      no_tma_er_non_na  <- rbind(no_tma_er_non_na, instances[, c("X3", "TMA", "X1", "ER1", "ER2", "ER3")])
+    }
+  } else {
+    no_tma_er_non_na <- rbind(no_tma_er_non_na, instances[, c("X3", "TMA", "X1", "ER1", "ER2", "ER3")])
+  }
+}
+```
+`r duplicated` are duplicated.
+
+```{r}
+# Complete data 
+match_palga <- match(tma_er_non_na$X1, tma$palga_nr)
+tma_er_non_na$TUMORSLIDE_ASSESSED_REVISION_E1_C1 <- tma[match_palga, "TUMORSLIDE_ASSESSED_REVISION_E1_C1"]
+
+match_palga <- match(no_tma_er_non_na$X1, no_tma$palga_nr)
+no_tma_er_non_na$TUMORSLIDE_ASSESSED_REVISION_E1_C1 <- no_tma[match_palga, "TUMORSLIDE_ASSESSED_REVISION_E1_C1"]
+
+if (all(names(tma_er_non_na) == names(no_tma_er_non_na))){
+  complete_data <- rbind(tma_er_non_na, no_tma_er_non_na)
+  names(complete_data)[1] <- "TMA_NUMBER_ER_IHC_ER_E2_C2"
+  names(complete_data)[3] <- "palga_nr"
+}
+```
+
+```{r}
+open_first_excel_file <- function(excel_files, 
+                                  identification_pattern,
+                                  exclude_identification_pattern=NULL,
+                                  sheetname = NULL, 
+                                  colnames = FALSE
+                                  ) {
+  # Retrieve all files containing the identification pattern
+  files_found <- excel_files[str_detect(excel_files, identification_pattern)]
+  files_found <- files_found[!str_detect(files_found, exclude_identification_pattern)]
+  
+  print(files_found[1])
+  
+  # Check if there are any matching files
+  if(length(files_found) > 0) {
+    # Read the first matching file
+    if (is.null(sheetname)) {
+      # If sheetname is not provided, open the first sheet
+      data <- read_excel(files_found[1])
+    } else {
+      data <- read_excel(files_found[1], sheet = sheetname, col_names = colnames)
+    }
+    return(list(file_path = files_found[1], data = data))
+  } else {
+    # cat("No matching files found in the specified directory.\n")
+    return(NULL)
+  }
+}
+```
+
+```{r}
+find_value_in_column <- function(palga_nr, tma_data, column_id, col_instance=1){
+  # Find column with block id
+  # col_names <- names(tma_data)[which(tma_data == column_id, arr.ind = TRUE)[, "col"]]
+  
+  col_indices <- sapply(tma_data, function(col) any(grepl(column_id, col)))
+  col_names <- names(col_indices)[col_indices]
+  
+  if (length(unique(col_names)) == 1){
+    row <- unique(which(tma_data == palga_nr, arr.ind = TRUE)[, "row"])
+    if (is_empty(row)){
+      value <- "Palga number not found"
+    } else {
+      value <- tma_data[row, unique(col_names)]
+    }
+  } else if(length(unique(col_names)) == 2){
+    value <- tma_data[row, unique(col_names)[col_instance]]
+  } else if(length(unique(col_names)) == 0) {
+    value <- "No column contains column identification pattern."
+  } else {
+    value <- "Multiple columns found, try finding column with block ID manually."
+  }
+  
+  return(as.character(value))
+}
+```
+
+```{r}
+has_sheet2 <- function(file_path) {
+  sheets <- excel_sheets(file_path)
+  "Sheet2" %in% sheets
+}
+
+# search_folder <- "C:/Users/n.ultee/Delete_test_folder"
+search_folder <- "R:/Groups/GroupLinn/Gwen/NKI/NBCP/YBCP/Mark/CF173 TMA AR and phospho scores"
+excel_files <- list.files(path = search_folder, pattern = "*.xlsx", full.names = TRUE)
+
+# Identify files without "Sheet2"
+files_without_sheet2 <- excel_files[!sapply(excel_files, has_sheet2)]
+print(files_without_sheet2)
+```
+
+```{r}
+# Retrieve block numbers
+for (subject in 1:nrow(complete_data)){
+  # Preprocess TMA ID
+  palga_nr <- complete_data[subject, "palga_nr"]
+  tma_number <- complete_data[subject, "TMA"]
+  tma_number <- str_extract(tma_number, "(old\\d+|\\d+)")
+  if (!startsWith(tma_number, "old")) {
+    tma_number <- paste0("TMA", tma_number)
+  }
+
+  # Retrieve excel file
+  exclude <- "-"
+  file_data <- open_first_excel_file(excel_files, tma_number, exclude, "Sheet2")
+  if (!is.null(file_data[1])){
+    block_id1 <- find_value_in_column(palga_nr, file_data$data, column_id = "^[Aa]1$")
+    block_id2 <- find_value_in_column(palga_nr, file_data$data, column_id = "^A$", col_instance = 2)
+    # block_id1 <- find_value_in_column(palga_nr, file_data$data, column_id = "A1", col_instance = 1)
+    # block_id2 <- find_value_in_column(palga_nr, file_data$data, column_id = "A", col_instance = 2)
+  } else {
+    block_id1 <- "Excel file not found"
+    block_id2 <- "Excel file not found"
+  }
+  
+  # Add Block ID
+  complete_data[subject, "Block_ID1"] <- block_id1
+  complete_data[subject, "Block_ID2"] <- block_id2
+  if (!is.null(file_data$file_path)) {
+  complete_data[subject, "File_name"] <- file_data$file_path
+  }
+}
+```
+
+```{r}
+file_path <- fs::path(working_dir, "Data slides/Retrieve_blocks_paradigm_sample.xlsx")
+
+# Check if the file already exists
+if (file.exists(file_path)) {
+  # Attempt to remove the existing file
+  removal_result <- try(file.remove(file_path), silent = TRUE)
+  
+  if (inherits(removal_result, "try-error")) {
+    cat("Failed to remove existing file. Error: ", conditionMessage(removal_result), "\n")
+  } else if (removal_result) {
+    print("Existing file removed successfully.")
+  }
+}
+
+# Create excel form
+write.xlsx(as.data.frame(complete_data), file = fs::path(working_dir, "Data slides/Retrieve_blocks_paradigm_sample.xlsx"))
+write.csv(as.data.frame(complete_data), file = fs::path(working_dir, "Data slides/Retrieve_blocks_paradigm_sample.csv"))
 ```

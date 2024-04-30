@@ -1,5 +1,6 @@
 import os
 import setuptools
+import zipfile
 openslide_path = r'C:\Python files\Software\openslide-win64-20231011\bin'
 vipshome = r'C:\Python files\Software\vips-dev-w64-web-8.15.0\vips-dev-8.15\bin'
 os.environ['PATH'] = vipshome
@@ -27,44 +28,122 @@ from skimage.exposure import equalize_adapthist
 import warnings
 from cv2 import findContours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE, boundingRect
 
-# token = ('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJOYW1lIjoiSEtTX1NhcmFfMjMxMjA0XyBJUkJtMTlfMTg1IiwiSUQiOiI1MzkzIiwiVmVy'
-#          'c2lvbiI6IjEuMCIsIkNhbkNyZWF0ZVVwbG9hZEZvbGRlcnMiOiJGYWxzZSIsIkNhblVwbG9hZCI6IkZhbHNlIiwiQ2FuRG93bmxvYWRTbGlkZ'
-#          'XMiOiJUcnVlIiwiQ2FuRGVsZXRlU2xpZGVzIjoiRmFsc2UiLCJDYW5VcGxvYWRPbmx5SW5Gb2xkZXJzIjoiIiwiQ2FuUmVhZE9ubHlTdHVkaW'
-#          'VzIjoiSVJCbTE5XzE4NV9FUjtJUkJtMTlfMTg1X0hFX3RyaXBsZV9uZWc7SVJCbTE5XzE4NV9IRTtJUkJtMTlfMTg1X0hFUjI7SVJCbTE5XzE'
-#          '4NV9LaV82NztJUkJtMTlfMTg1X1BSOyIsIkNhbk1vZGlmeU9ubHlTdHVkaWVzIjoiIiwiQ2FuR2V0Q29uZmlnIjoiRmFsc2UiLCJDYW5HZXRQ'
-#          'aXhlbHMiOiJUcnVlIiwiQ2FuSGFuZGxlRG9tYWlucyI6IkZhbHNlIiwiQ2FuSGFuZGxlUGF0aHMiOiJGYWxzZSIsIkNhblVwbG9hZFNjb3Jlc'
-#          'yI6IlRydWUiLCJDYW5DcmVhdGVTdHVkaWVzIjoiRmFsc2UiLCJDYW5SZWltcG9ydFN0dWRpZXMiOiJGYWxzZSIsIkNhbkRlbGV0ZU93bmVkU3'
-#          'R1ZGllcyI6IkZhbHNlIiwiQ2FuR2V0U2NvcmVzIjoiRmFsc2UiLCJDYW5HZXRBbnlTY29yZXMiOiJUcnVlIiwiQ2FuSGFuZGxlU3R1ZGVudEF'
-#          'jY291bnRzIjoiRmFsc2UiLCJuYmYiOjE3MDE2ODQ5MzYsImV4cCI6MTczMzI2NjgwMCwiaWF0IjoxNzAxNjg0OTM2fQ.gnwDKsJBlqk1YYmwn'
-#          'KZwyLCe_GGk24tzHlwfZDItb54#expires:2024-12-04T00:00:00')
-# url = "https://slidescore.nki.nl/"
-# studyid = 382
-#
-# client = slidescore.APIClient(url, token)
-# client.get_studies()
-#
-# download_path = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER'
-# download_res = r'R:\Groups\GroupLinn\Nigel\IRBm19_185_ER'
-#
-# # download files that have not been downloaded yet
-# count = 0
-# for f in client.get_images(studyid):
-#     count = count + 1
-#     image_name = f["name"]  # works?
-#     pattern = re.compile(image_name + r'.(zip|svs)')
-#     match_C = list(filter(pattern.match, os.listdir(download_path)))
-#     match_R = list(filter(pattern.match, os.listdir(download_res)))
-#     if match_C:  # if downloaded in C-drive, move to R drive
-#         file_name = ''.join(match_C)
-#         shutil.move(os.path.join(download_path, file_name), download_res)
-#         print(count, ": ", image_name, "was previously downloaded in C-drive. Moved to R-drive.")
-#     elif match_R:  # if in R-drive, skip
-#         print(count, ": ", image_name, "was previously downloaded in R-drive.")
-#     else:  # if not downloaded, do so
-#         print(count, ": ", 'downloading ' + f["name"] + ' in R-drive...', end='', flush=True)
-#         client.download_slide(studyid, f["id"], download_res)
-#         print('done')
-# print('DOWNLOADING DONE')
+#############################
+### Download IRBdm 19-185 ###
+#############################
+token = ('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJOYW1lIjoiSEtTX1NhcmFfMjMxMjA0XyBJUkJtMTlfMTg1IiwiSUQiOiI1MzkzIiwiVmVy'
+         'c2lvbiI6IjEuMCIsIkNhbkNyZWF0ZVVwbG9hZEZvbGRlcnMiOiJGYWxzZSIsIkNhblVwbG9hZCI6IkZhbHNlIiwiQ2FuRG93bmxvYWRTbGlkZ'
+         'XMiOiJUcnVlIiwiQ2FuRGVsZXRlU2xpZGVzIjoiRmFsc2UiLCJDYW5VcGxvYWRPbmx5SW5Gb2xkZXJzIjoiIiwiQ2FuUmVhZE9ubHlTdHVkaW'
+         'VzIjoiSVJCbTE5XzE4NV9FUjtJUkJtMTlfMTg1X0hFX3RyaXBsZV9uZWc7SVJCbTE5XzE4NV9IRTtJUkJtMTlfMTg1X0hFUjI7SVJCbTE5XzE'
+         '4NV9LaV82NztJUkJtMTlfMTg1X1BSOyIsIkNhbk1vZGlmeU9ubHlTdHVkaWVzIjoiIiwiQ2FuR2V0Q29uZmlnIjoiRmFsc2UiLCJDYW5HZXRQ'
+         'aXhlbHMiOiJUcnVlIiwiQ2FuSGFuZGxlRG9tYWlucyI6IkZhbHNlIiwiQ2FuSGFuZGxlUGF0aHMiOiJGYWxzZSIsIkNhblVwbG9hZFNjb3Jlc'
+         'yI6IlRydWUiLCJDYW5DcmVhdGVTdHVkaWVzIjoiRmFsc2UiLCJDYW5SZWltcG9ydFN0dWRpZXMiOiJGYWxzZSIsIkNhbkRlbGV0ZU93bmVkU3'
+         'R1ZGllcyI6IkZhbHNlIiwiQ2FuR2V0U2NvcmVzIjoiRmFsc2UiLCJDYW5HZXRBbnlTY29yZXMiOiJUcnVlIiwiQ2FuSGFuZGxlU3R1ZGVudEF'
+         'jY291bnRzIjoiRmFsc2UiLCJuYmYiOjE3MDE2ODQ5MzYsImV4cCI6MTczMzI2NjgwMCwiaWF0IjoxNzAxNjg0OTM2fQ.gnwDKsJBlqk1YYmwn'
+         'KZwyLCe_GGk24tzHlwfZDItb54#expires:2024-12-04T00:00:00')
+url = "https://slidescore.nki.nl/"
+studyid = 382
+
+client = slidescore.APIClient(url, token)
+results = client.get_results(studyid)
+client.get_studies()
+
+download_path = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER'
+download_res = r'R:\Groups\GroupLinn\Nigel\IRBm19_185_ER'
+
+# download files that have not been downloaded yet
+count = 0
+for f in client.get_images(studyid):
+    count = count + 1
+    image_name = f["name"]  # works?
+    pattern = re.compile(image_name + r'.(zip|svs)')
+    match_C = list(filter(pattern.match, os.listdir(download_path)))
+    match_R = list(filter(pattern.match, os.listdir(download_res)))
+    if match_C:  # if downloaded in C-drive, move to R drive
+        file_name = ''.join(match_C)
+        shutil.move(os.path.join(download_path, file_name), download_res)
+        print(count, ": ", image_name, "was previously downloaded in C-drive. Moved to R-drive.")
+    elif match_R:  # if in R-drive, skip
+        print(count, ": ", image_name, "was previously downloaded in R-drive.")
+    else:  # if not downloaded, do so
+        print(count, ": ", 'downloading ' + f["name"] + ' in R-drive...', end='', flush=True)
+        client.download_slide(studyid, f["id"], download_res)
+        print('done')
+print('DOWNLOADING DONE')
+
+def find_id_by_name(images_info, t_number):
+    """
+    Find the 'id' corresponding to the specified t-number in a list of dictionaries.
+
+    Parameters:
+        data (list[dict]): List of dicts containing 'id' and 'name' entries, yielded by client.get_images(studyid)
+        t_number (str): The T-number corresponsding to the slide.
+
+    Returns:
+        int or None: The 'id' corresponding to the specified 'name', or None if not found.
+    """
+    for item in images_info:
+        if item.get('name') == t_number:
+            return item.get('id')
+    return None
+
+def check_zip_files(folder_path, images_info):
+    """
+    Check all zip files in the specified folder and attempt to read each one.
+
+    Parameters:
+        folder_path (str): The path to the folder containing the zip files.
+
+    Returns:
+        None
+
+    This function iterates over all zip files in the specified folder and attempts to open each zip file using the
+    zipfile module. If a zip file can be successfully opened, it lists the contents of the zip file. If a zip file
+    encounters an error during opening or processing, it removes the zip file from the folder and downloads the folder
+    again.
+    """
+    # List all files in the specified folder
+    files = os.listdir(folder_path)
+
+    # Filter out only the zip files
+    zip_files = [file for file in files if file.endswith('.zip')]
+
+    # Iterate over each zip file
+    for zip_file in zip_files:
+        file_path = os.path.join(folder_path, zip_file)
+        try:
+            # Try to open the zip file
+            with zipfile.ZipFile(file_path, 'r') as zf:
+                # Attempt to list contents (this will check if it's readable)
+                pass
+                file_list = zf.namelist()
+                print(f"Zip file '{zip_file}' is readable and contains the following files:")
+                # for file in file_list:
+                #     print(f"  - {file}")
+        except zipfile.BadZipFile:
+            # This exception will be raised if the file is not a valid zip file
+            print(f"Error: '{zip_file}' is not a valid zip file.")
+            os.remove(file_path)
+
+            t_number = zip_file[:-4] if zip_file.endswith('.zip') else zip_file
+            slide_id = find_id_by_name(images_info, t_number)
+            if slide_id is not None:
+                client.download_slide(studyid, slide_id, download_res)
+                print(f"Removed and redownloaded '{zip_file}'.")
+        except Exception as e:
+            # Catch any other exceptions
+            print(f"Error: '{zip_file}' encountered an error - {e}")
+            os.remove(file_path)
+
+            t_number = zip_file[:-4] if zip_file.endswith('.zip') else zip_file
+            slide_id = find_id_by_name(images_info, t_number)
+            if slide_id is not None:
+                client.download_slide(studyid, slide_id, download_res)
+                print(f"Removed and redownloaded '{zip_file}'.")
+
+# Call the function to check zip files in the specified folder
+check_zip_files(download_res, client.get_images(studyid))
+print('CHECKING ZIP FOLDERS DONE')
 
 ################
 ### Pipeline ###
@@ -356,8 +435,10 @@ def find_largest_gap(mask):
         largest_gap = int(largest_area_region_horizontal.centroid[1])
         return largest_gap, gap_orientation
     else:
-        # Warn if mean circularities are equal return original mask
-        raise ValueError("No gaps found.")
+        # When both 0 (probably) -> raise Error, warning or pass? This would mean no foreground was detected at all
+        # raise ValueError("No gaps found.")
+        warnings.warn("No gaps found, proceed with original mask", UserWarning)
+        return mask
 
 def find_dividing_line(mask):
     """
@@ -366,6 +447,8 @@ def find_dividing_line(mask):
     """
     mask = crop_to_contour(mask)  # crop to contour tissue
     largest_gap, orientation_diving_line = find_largest_gap(mask)  # find largest gap in landscape and portrait orientation
+
+    # TO DO: adjust dividing line so that dividing_line =  delta mask width-crop x
 
     # Check if largest region is found.
     if largest_gap != 0:
@@ -508,16 +591,6 @@ def counting_method(mask, objects_left, objects_right):
         return side_to_keep
     else:
         return False
-    # if (objects_left >= 3 and objects_left <= 5) and (objects_right < 3 or objects_right > 5):
-    #     # Include objects on the left side
-    #     side_to_keep = 'right/bottom'
-    #     return side_to_keep
-    # elif (objects_right >= 3 and objects_right <= 5) and (objects_left < 3 or objects_left > 5):
-    #     # Include objects on the right side
-    #     side_to_keep = 'left/top'
-    #     return side_to_keep
-    # else:
-    #     return False
 
 def median_circularity_method(mask, regions):
     """
@@ -641,7 +714,7 @@ def tile_image(file_path, TARGET_MPP, TILE_SIZE, mask):
 ##################
 ### MRXS files ###
 ##################
-INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\mrxs_files2'
+INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\mrxs_files3'
 
 ####
 images = []
@@ -832,111 +905,17 @@ plt.show()
 ########################################################################################################################
 ################################################## UNDER CONSTRUCTION ##################################################
 ########################################################################################################################
-##################
-### MRXS FILES ###
-##################
-image = images[0]
-plt.imshow(image)
-plt.show()
-
-print(image.shape)  # (7577, 8192, 3)
-print(image.dtype)  # uint8
-
-plt.imshow(image[7000:7010, 0:10])
-plt.show()
-print(image[7000:7010, 0:10])
-
-################
-### Stardist ###
-################
-from stardist.models import StarDist2D
-from stardist import fill_label_holes, random_label_cmap, render_label
-from stardist.data import test_image_nuclei_2d
-from csbdeep.utils import normalize
-
-### Sreeni
-img = test_image_nuclei_2d()  # uint16, needs normalization
-
-# Load or train a Stardist model
-model = StarDist2D.from_pretrained('2D_paper_dsb2018')
-
-# Predict cell probabilities and labels
-labels, _ = model.predict_instances(normalize(img))
-
-# Visualize the results
-cmap = random_label_cmap()
-fig, axes = plt.subplots(1, 2, figsize=(12, 6))
-axes[0].imshow(img, cmap='gray')
-axes[0].set_title('Original Image')
-axes[1].imshow(labels, cmap=cmap)
-axes[1].set_title('Segmentation Labels')
-plt.show()
-
-### Import slide at specific level
-import openslide
-# INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\svs_files'
-# filename = r'T18-02695 I1 ER.svs'
-INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\mrxs_files\T20-05125 I4 ER'
-filename = r'T20-05125 I4 ER.mrxs'
-slide = openslide.OpenSlide(os.path.join(INPUT_PATH, filename))
-
-# Get information about the levels
-levels = slide.level_count
-print(f"Number of levels: {levels}")
-
-# Choose the level for analysis (e.g., level 1)
-chosen_level = 5
-
-# Read the image at the chosen level
-image_at_level = np.array(slide.read_region((0, 0), chosen_level, slide.level_dimensions[chosen_level]))[:, :, :3]
-plt.imshow(image_at_level)
-plt.show()
-
-# Specify the region of interest (ROI) coordinates
-roi_x, roi_y = 6000, 20000  # Example coordinates
-roi_width, roi_height = 100, 100  # Example dimensions
-
-# Read the image in the specified ROI
-image_roi = np.array(slide.read_region((roi_x, roi_y), 0, (roi_width, roi_height)))[:, :, :3]
-plt.imshow(image_roi)
-plt.show()
-
-# Close the slide object to free resources
-slide.close()
-
-# Convert the RGB image to grayscale if needed
-sd_image = normalize(image_roi.astype(np.float32))
-
-gray_image = 1 - np.mean(sd_image, axis=-1)
-plt.imshow(gray_image, cmap="gray")
-plt.show()
-
-# Load the pre-trained Stardist model
-model = StarDist2D.from_pretrained('2D_paper_dsb2018')
-
-# Predict probabilities and labels
-# labels, probabilities = model.predict(gray_image)  # label -> radial distance; probability -> pixel/point is center
-labels, _ = model.predict_instances(normalize(gray_image))
-
-plt.subplot(1, 2, 1)
-plt.imshow(gray_image, cmap="gray")
-plt.axis("off")
-plt.title("input image")
-
-plt.subplot(1, 2, 2)
-plt.imshow(render_label(labels, img=gray_image))
-plt.axis("off")
-plt.title("prediction + input overlay")
-
-plt.show()
 
 ################
 ### Cellpose ###
 ################
 import openslide
 from cellpose import models, plot
+from csbdeep.utils import normalize
 INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\svs_files'
-filename = r'T18-02695 I1 ER.svs'
+# filename = r'T18-02695 I1 ER.svs'
+# filename = r'T17-23462 B2 ER.svs'
+filename = r'T17-21493 B1 ER.svs'
 slide = openslide.OpenSlide(os.path.join(INPUT_PATH, filename))
 # slide = slide_images[7]
 
@@ -951,8 +930,12 @@ chosen_level = 0
 # image_at_level = np.array(slide.read_region((0, 0), chosen_level, slide.level_dimensions[chosen_level]))[:, :, :3]
 
 # Specify the region of interest (ROI) coordinates
-roi_x, roi_y = 6000, 20000  # Example coordinates
-roi_width, roi_height = 1000, 1000  # Example dimensions
+# roi_x, roi_y = 6000, 20000  # Example coordinates
+# roi_width, roi_height = 1000, 1000  # Example dimensions
+# roi_x, roi_y = 2000, 26666  # Example coordinates T17-23462 B2 ER
+# roi_width, roi_height = 1000, 1000  # Example dimensions T17-23462 B2 ER
+roi_x, roi_y = 4300, 13850  # Example coordinates T17-21493 B1 ER
+roi_width, roi_height = 300, 300  # Example dimensions T17-21493 B1 ER
 
 # Read the image in the specified ROI
 image_roi = np.array(slide.read_region((roi_x, roi_y), 0, (roi_width, roi_height)))[:, :, :3]
@@ -978,36 +961,119 @@ plot.show_segmentation(fig, gray_image, masks, flows[0], channels=[0, 0])
 plt.tight_layout()
 plt.show()
 
-### Contrast stretching
-from skimage.exposure import equalize_adapthist, rescale_intensity
+### Use masks to find cells in original image
+from cv2 import split, threshold, THRESH_BINARY, THRESH_OTSU
 
-# Try transformations
-contrast_stretched = rescale_intensity(gray_image, in_range='image', out_range=(0, 1))  # contrast stretching
+def assess_er_positivity(image, mask):
+    """
+    Add docstring
+    """
+    average_red_values = []
+    labeled_mask, num_labels = measure.label(mask, connectivity=2, return_num=True)  # label objects
+    for label in np.unique(labeled_mask):
+        if label == 0:
+            continue
 
-normalized_image = gray_image / gray_image.max()
-contrast_enhanced = equalize_adapthist(normalized_image)  # adaptive histogram equalization
+        object_mask = np.where(labeled_mask == label, 1, 0)
+        object_pixels = image[object_mask == 1]
 
-# plot
-plt.figure(figsize=(10, 5))
+        # Calculate the average red channel value for the current object
+        average_red = np.mean(object_pixels[:, 2])  # Assuming the red channel is at index 2
 
-plt.subplot(1, 2, 1)
-plt.imshow(gray_image, cmap='gray')
-plt.title('Original Image')
+        # Store the result in the dictionary
+        average_red_values.append(average_red)
 
-plt.subplot(1, 2, 2)
-plt.imshow(contrast_enhanced, cmap='gray')
-plt.title('Contrast Stretched Image')
+    image_masked = image[:, :, 0].copy()
+    image_masked[~(mask > 0)] = 0
 
+    total_cells = len(average_red_values)
+    er_positive_cells = sum(1 for value in average_red_values if value < 165)
+    er_percentage = int(er_positive_cells / total_cells * 100)
+    print(f'ER: {er_percentage}% ({er_positive_cells}/{total_cells})')
+
+    return er_percentage
+
+assess_er_positivity(image_roi, masks)
+
+### Try on whole IHC image
+# Cellpose only works on higher level (higher resolution)
+image = np.copy(images[7])
+mask = np.copy(regionprops_controls[7])
+for channel in range(3):  # Assuming RGB image (3 channels)
+    image[:, :, channel] = np.where(mask, image[:, :, channel], 0)
+    # Convert the RGB image to grayscale if needed
+    sd_image = normalize(image.astype(np.float32))
+
+    gray_image = 1 - np.mean(sd_image, axis=-1)
+    plt.imshow(gray_image, cmap="gray")
+    plt.show()
+
+    # Cellpose
+    model = models.Cellpose(gpu=True, model_type='cyto')
+    masks, flows, styles, diams = model.eval(gray_image, diameter=None, channels=[0, 0])
+
+    er_percentage = assess_er_positivity(image, masks)
+
+### Try on multiple IHC images
+# Cellpose only works on higher level (higher resolution)
+er_percentages = []
+for image_id in (range(0, len(images))):
+    # Remove controls
+    image = np.copy(images[image_id])
+    mask = np.copy(regionprops_controls[image_id])
+    for channel in range(3):  # Assuming RGB image (3 channels)
+        image[:, :, channel] = np.where(mask, image[:, :, channel], 0)
+
+    # Convert the RGB image to grayscale if needed
+    sd_image = normalize(image.astype(np.float32))
+
+    gray_image = 1 - np.mean(sd_image, axis=-1)
+    plt.imshow(gray_image, cmap="gray")
+    plt.show()
+
+    # Cellpose
+    model = models.Cellpose(gpu=True, model_type='cyto')
+    masks, flows, styles, diams = model.eval(gray_image, diameter=None, channels=[0, 0])
+
+    er_percentage = assess_er_positivity(image, masks)
+    er_percentages.append(er_percentage)
+
+
+
+### Binarize image using Red channel only
+from cv2 import split, threshold, THRESH_BINARY, THRESH_OTSU
+
+# # Combine masks for individual cells into one mask
+# combined_mask = np.sum(masks, axis=0)
+#
+# # Convert the combined mask to binary (0 for background, 1 for cells)
+# binary_mask = combined_mask > 0
+
+red_channel = image_roi[:, :, 0]
+isolated_cells = red_channel * masks
+
+plt.imshow(isolated_cells)
 plt.show()
 
-# Cellpose with transformed image
-model = models.Cellpose(gpu=True, model_type='cyto')
-masks, flows, styles, diams = model.eval(contrast_enhanced, diameter=None, channels=[0, 0])
+# Threshold the red channel
+_, thresholded_red = threshold(red_channel, 0, 255, THRESH_BINARY + THRESH_OTSU)
 
-fig = plt.figure(figsize=(12, 5))
-plot.show_segmentation(fig, contrast_enhanced, masks, flows[0], channels=[0, 0])
+# Display the results
+plt.figure(figsize=(15, 5))
+plt.subplot(131)
+plt.imshow(image_roi)
+plt.title('Original Image')
+plt.subplot(132)
+plt.imshow(isolated_cells, cmap='gray')
+plt.title('Isolated Cells')
+plt.subplot(133)
+plt.imshow(thresholded_red, cmap='gray')
+plt.title('Thresholded Red Channel')
 plt.tight_layout()
 plt.show()
+
+cells_total = np.sum(masks)
+er_positive = np.sum(thresholded_red > 0)
 
 ################ GRAVEYARD ################
 differences_per_mask = []
@@ -1113,4 +1179,158 @@ def find_largest_gap_in_both_dimensions(mask):
     #         return int(region_largest_gap_horizontal.centroid[0])
     #     else:
     #         return int(region_largest_gap_vertical.centroid[1])
+
+##################
+### MRXS FILES ###
+##################
+image = images[0]
+plt.imshow(image)
+plt.show()
+
+print(image.shape)  # (7577, 8192, 3)
+print(image.dtype)  # uint8
+
+plt.imshow(image[7000:7010, 0:10])
+plt.show()
+print(image[7000:7010, 0:10])
+
+################
+### Stardist ###
+################
+from stardist.models import StarDist2D
+from stardist import fill_label_holes, random_label_cmap, render_label
+from stardist.data import test_image_nuclei_2d
+from csbdeep.utils import normalize
+
+### Sreeni
+img = test_image_nuclei_2d()  # uint16, needs normalization
+
+# Load or train a Stardist model
+model = StarDist2D.from_pretrained('2D_paper_dsb2018')
+
+# Predict cell probabilities and labels
+labels, _ = model.predict_instances(normalize(img))
+
+# Visualize the results
+cmap = random_label_cmap()
+fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+axes[0].imshow(img, cmap='gray')
+axes[0].set_title('Original Image')
+axes[1].imshow(labels, cmap=cmap)
+axes[1].set_title('Segmentation Labels')
+plt.show()
+
+### Import slide at specific level
+import openslide
+# INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\svs_files'
+# filename = r'T18-02695 I1 ER.svs'
+INPUT_PATH = r'C:\Users\n.ultee\PycharmProjects\ER_ITH_v1.0\IRBm19_185_ER\mrxs_files\T20-05125 I4 ER'
+filename = r'T20-05125 I4 ER.mrxs'
+slide = openslide.OpenSlide(os.path.join(INPUT_PATH, filename))
+
+# Get information about the levels
+levels = slide.level_count
+print(f"Number of levels: {levels}")
+
+# Choose the level for analysis (e.g., level 1)
+chosen_level = 5
+
+# Read the image at the chosen level
+image_at_level = np.array(slide.read_region((0, 0), chosen_level, slide.level_dimensions[chosen_level]))[:, :, :3]
+plt.imshow(image_at_level)
+plt.show()
+
+# Specify the region of interest (ROI) coordinates
+roi_x, roi_y = 6000, 20000  # Example coordinates
+roi_width, roi_height = 100, 100  # Example dimensions
+
+# Read the image in the specified ROI
+image_roi = np.array(slide.read_region((roi_x, roi_y), 0, (roi_width, roi_height)))[:, :, :3]
+plt.imshow(image_roi)
+plt.show()
+
+# Close the slide object to free resources
+slide.close()
+
+# Convert the RGB image to grayscale if needed
+sd_image = normalize(image_roi.astype(np.float32))
+
+gray_image = 1 - np.mean(sd_image, axis=-1)
+plt.imshow(gray_image, cmap="gray")
+plt.show()
+
+# Load the pre-trained Stardist model
+model = StarDist2D.from_pretrained('2D_paper_dsb2018')
+
+# Predict probabilities and labels
+# labels, probabilities = model.predict(gray_image)  # label -> radial distance; probability -> pixel/point is center
+labels, _ = model.predict_instances(normalize(gray_image))
+
+plt.subplot(1, 2, 1)
+plt.imshow(gray_image, cmap="gray")
+plt.axis("off")
+plt.title("input image")
+
+plt.subplot(1, 2, 2)
+plt.imshow(render_label(labels, img=gray_image))
+plt.axis("off")
+plt.title("prediction + input overlay")
+
+plt.show()
+
+### Contrast stretching
+from skimage.exposure import equalize_adapthist, rescale_intensity
+
+# Try transformations
+contrast_stretched = rescale_intensity(gray_image, in_range='image', out_range=(0, 1))  # contrast stretching
+
+normalized_image = gray_image / gray_image.max()
+contrast_enhanced = equalize_adapthist(normalized_image)  # adaptive histogram equalization
+
+# plot
+plt.figure(figsize=(10, 5))
+
+plt.subplot(1, 2, 1)
+plt.imshow(gray_image, cmap='gray')
+plt.title('Original Image')
+
+plt.subplot(1, 2, 2)
+plt.imshow(contrast_enhanced, cmap='gray')
+plt.title('Contrast Stretched Image')
+
+plt.show()
+
+# Cellpose with transformed image
+model = models.Cellpose(gpu=True, model_type='cyto')
+masks, flows, styles, diams = model.eval(contrast_enhanced, diameter=None, channels=[0, 0])
+
+fig = plt.figure(figsize=(12, 5))
+plot.show_segmentation(fig, contrast_enhanced, masks, flows[0], channels=[0, 0])
+plt.tight_layout()
+plt.show()
+
+### Access outlines
+from cellpose import utils
+outlines = utils.masks_to_outlines(masks)
+plt.imshow(outlines, cmap='gray')
+plt.show()
+
+# Label and measure properties of the objects
+regions = measure_properties(outlines)
+len(regions)  # Take a look at the 50x50 image and you will see that the outlines are connected so 3 objects yielded...
+
+### Labels method
+# Apply threshold
+binary_mask = (masks > 0).astype(int)
+
+# Label cells
+labeled_cells, num_cells = ndimage.label(binary_mask)
+
+# Visualize if needed
+plt.imshow(image_roi)
+plt.contour(labeled_cells, colors='red', linewidths=1, alpha=0.5)
+plt.show()
+
+# Print or use the count
+print(f"Number of cells: {num_cells}")
 
